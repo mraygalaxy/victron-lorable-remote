@@ -5,12 +5,13 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const version='4.11.1';
+const version='4.12.0';
 const buildRoot=path.resolve(process.env.LORABLE_BUILD_ROOT||root);
 const out=path.resolve(process.argv[2]||path.join(root,'release_staging',version));
 assert.ok(out!==root&&!root.startsWith(out+path.sep),'Choose a separate staging directory.');
 assert.ok(!fs.existsSync(out)||fs.readdirSync(out).length===0,'Destination must be new or empty; nothing is overwritten.');
-const stm=path.join(buildRoot,'build_public4111'),esp=path.join(buildRoot,'esp8684/build_release4111');
+const stm=path.resolve(buildRoot,process.env.LORABLE_STM_BUILD||'build_public4120');
+const esp=path.resolve(buildRoot,process.env.LORABLE_ESP_BUILD||'esp8684/build_release4120');
 const options=JSON.parse(fs.readFileSync(path.join(stm,'build.options.json')));
 assert.match(options.customBuildProperties,/-DLORABLE_PUBLIC_BUILD/);
 const project=JSON.parse(fs.readFileSync(path.join(esp,'project_description.json')));
@@ -36,13 +37,16 @@ const files=new Map();
 function add(relative,source=path.join(root,relative)){const b=fs.readFileSync(source);scan(b,relative);files.set(relative.replaceAll('\\','/'),b);}
 function flat(directory,predicate){for(const entry of fs.readdirSync(path.join(root,directory),{withFileTypes:true}))if(entry.isFile()&&predicate(entry.name))add(directory+'/'+entry.name);}
 for(const f of ['README.md','README.en.md','Install.cmd','LICENSE','.gitignore','.gitattributes','THIRD-PARTY-NOTICES.md'])add(f);
-for(const f of ['INSTALL.md','NETWORKS.md','EXAMPLES.md','DEVELOPMENT.md','RELEASE.md'])add('docs/'+f);
+for(const f of ['INSTALL.md','MANUAL.md','NETWORKS.md','EXAMPLES.md','DEVELOPMENT.md','PROTOCOL.md','RELEASE.md'])add('docs/'+f);
 flat('stm32',n=>/\.(h|cpp|ino|js)$/.test(n)&&n!=='settings.local.h');
 flat('esp8684/main',n=>/\.(c|h|txt)$/.test(n));
 for(const f of ['esp8684/CMakeLists.txt','esp8684/partitions.csv','esp8684/sdkconfig.defaults','esp8684/build.ps1','web/index.html','arduino/platform.local.txt','updater/ram-loader.c','updater/ram-loader.ld','.github/workflows/release.yml'])add(f);
 for(const f of ['First-Install.ps1','FirstInstall.Core.ps1','FirstInstall.Windows.cs','Start-First-Install.cmd','bootstrap-image.json','bootstrap/bootstrap.ino','Flash-USB.ps1','Usb-Portal.ps1','Bundle.ps1','Start-USB-Flash.cmd','START-HERE.md'])add('installer/'+f);
-for(const f of ['build.ps1','build-first-install.ps1','build-ram-loader.ps1','embed-ram-loader.mjs','build-web.mjs','check-web-asset.mjs','pack-esp-ota.py','update-bundle.py','test-update-bundle.py','test-bundle-powershell.ps1','test-first-install.ps1','test-ram-loader.py','test-portal-socket-budget.py','test-codec.cjs','test-web.cjs','prepare-release.mjs','check-release.py','make-release-zip.py'])add('tools/'+f);
-flat('tools/tests',n=>/\.(h|cpp)$/.test(n));flat('tools/tests/manager',n=>n.endsWith('.h'));
+for(const f of ['build.ps1','build-first-install.ps1','build-ram-loader.ps1','embed-ram-loader.mjs','build-web.mjs','check-web-asset.mjs','pack-esp-ota.py','update-bundle.py','test-update-bundle.py','test-bundle-powershell.ps1','test-first-install.ps1','test-ram-loader.py','test-portal-socket-budget.py','test-wifi-handshake.py','test-lora-power.ps1','test-codec.cjs','test-web.cjs','prepare-release.mjs','check-release.py','make-release-zip.py'])add('tools/'+f);
+flat('tools/tests',n=>/\.(h|c|cpp)$/.test(n));flat('tools/tests/manager',n=>n.endsWith('.h'));
+function testHeaders(dir){for(const entry of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){if(entry.isDirectory())testHeaders(dir+'/'+entry.name);else if(entry.isFile()&&entry.name.endsWith('.h'))add(dir+'/'+entry.name);}}
+testHeaders('tools/tests/stubs');
+testHeaders('tools/tests/power');
 for(const name of ['status.png','networks.png','manage.png'])add('docs/images/'+name,path.join(root,'test-results',name));
 add('firmware/LoRaBLE-Remote-'+version+'.bin',imagePath);
 const helper=JSON.parse(files.get('installer/bootstrap-image.json'));

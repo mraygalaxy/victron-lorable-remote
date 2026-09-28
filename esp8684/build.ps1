@@ -1,7 +1,8 @@
 param(
  [string]$BuildDirectory='build_native411_uart',
  [string]$IdfRoot=$env:IDF_PATH,
- [string]$IdfToolsPath=$env:IDF_TOOLS_PATH
+ [string]$IdfToolsPath=$env:IDF_TOOLS_PATH,
+ [string]$Version='4.12.0'
 )
 $ErrorActionPreference='Stop'
 if(-not $IdfRoot){$IdfRoot=Join-Path $env:USERPROFILE '.cache/esp-idf-v5.5.5'}
@@ -17,7 +18,7 @@ $env:CCACHE_DISABLE='1'
 Push-Location $PSScriptRoot
 try {
  . (Join-Path $IdfRoot 'export.ps1')
- & python "$env:IDF_PATH/tools/idf.py" --no-ccache -B $BuildDirectory -D "SDKCONFIG=$BuildDirectory/sdkconfig" build
+ & python "$env:IDF_PATH/tools/idf.py" --no-ccache -B $BuildDirectory -D "SDKCONFIG=$BuildDirectory/sdkconfig" -D "PROJECT_VER=$Version" build
  if($LASTEXITCODE -ne 0){throw 'ESP build failed'}
  Write-Host 'Application build only. DO NOT flash generated bootloader/table. Pack the app for the retained stock layout.'
 } finally {Pop-Location}

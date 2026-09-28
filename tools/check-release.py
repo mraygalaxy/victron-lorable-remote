@@ -49,7 +49,7 @@ def check(root):
     expected_firmware = {'manifest.json', Path(item['path']).name}
     assert {p.name for p in (root / 'firmware').iterdir()} == expected_firmware, 'Unexpected old firmware assets'
     for required in ['README.md', 'README.en.md', 'Install.cmd', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
-                     'docs/INSTALL.md', 'docs/NETWORKS.md', 'docs/EXAMPLES.md', 'docs/DEVELOPMENT.md', 'docs/RELEASE.md',
+                     'docs/INSTALL.md', 'docs/MANUAL.md', 'docs/NETWORKS.md', 'docs/EXAMPLES.md', 'docs/DEVELOPMENT.md', 'docs/PROTOCOL.md', 'docs/RELEASE.md',
                      'installer/START-HERE.md', 'updater/ram-loader.c', 'updater/ram-loader.ld']:
         assert (root / required).is_file(), 'Missing file: ' + required
     assert not (root / 'stm32/settings.local.h').exists(), 'Private settings in publication'

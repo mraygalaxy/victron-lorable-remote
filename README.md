@@ -2,7 +2,7 @@
 
 **Zet je modem, router of andere apparatuur pas aan wanneer je die nodig hebt.**
 
-[English](README.en.md) · [Download](https://github.com/roelbroersma/victron-lorable-remote/releases/latest) · [Installatie](docs/INSTALL.md) · [LoRaWAN instellen](docs/NETWORKS.md) · [Voorbeelden](docs/EXAMPLES.md)
+[English](README.en.md) · [Download](https://github.com/roelbroersma/victron-lorable-remote/releases/latest) · [Installatie](docs/INSTALL.md) · [Handleiding 4.12.0](docs/MANUAL.md) · [LoRaWAN instellen](docs/NETWORKS.md) · [Voorbeelden](docs/EXAMPLES.md)
 
 LoRaBLE Remote ontvangt een LoRaWAN-opdracht en bedient een apparaat via **Bluetooth of een relais**. Zo kan bijvoorbeeld je 4G/5G-modem uit blijven tot je op afstand verbinding nodig hebt. Een lokale spanningsingang kan dezelfde functies activeren.
 
@@ -29,6 +29,16 @@ Eerste installatie gebruikt een Windows-pc met USB én WiFi; de wizard regelt de
 Maak maximaal **tien benoemde Bluetooth-functies** voor één doelapparaat. Koppel die aan LoRaWAN-opdrachten of de opgaande/neergaande flank van een ingang. Per actie bepaal je wat mag worden bediend.
 
 De Nederlands/Engelse webinterface biedt status, recente gebeurtenissen, handbediening, energie-inschatting en veldhulp. WiFi kan na opstart of een trigger tijdelijk beschikbaar blijven.
+
+## Instellen en controleren in 4.12.0
+
+- **WiFi naar keuze:** direct accesspoint, eigen 2,4GHz-router via DHCP, of geheel uit. Routermodus wacht eerst op de router en probeert verbinding zonder AP. Pas bij mislukking of verbindingsverlies verschijnt AP-terugval op **192.168.4.1**, binnen het WiFi-venster. Na DHCP-succes gaat het AP uit; open het toegewezen IP-adres van dit board.
+- **LoRa-vermogen:** stel een maximum van **0–22 dBm** in; standaard **14 dBm**. ADR en regionale beperkingen kunnen het vermogen verlagen. **0 dBm is 1 mW**, niet radio uit. De status toont het laatst ingestelde radiovermogen, geen meting.
+- **Ingangstiming:** geef iedere flank een minimale AAN-/UIT-tijd en een extra actievertraging. Bijvoorbeeld 5 + 10 seconden vraagt 15 seconden onafgebroken dezelfde toestand. Een tegengestelde flank annuleert de wachtende actie; beide waarden 0 geven geen extra wachttijd na debounce.
+- **Duidelijke diagnose:** radioacceptatie, lokale TX en netwerk-ACK staan apart. RSSI/SNR horen bij de laatste geldige ontvangst, met profiel en ouderdom. Bluetooth toont het resultaat van de laatste opdracht en bij fouten de betreffende stap.
+- **Handmatig testen:** **Nu verzenden (ACK)** vraagt één bevestigd statusbericht; **Nu aanmelden** vraagt een nieuwe aanmelding op het voorkeursprofiel. Een aanvraag is nog geen geslaagde verzending of aanmelding. Lees de [uitleg en aandachtspunten](docs/MANUAL.md#handmatig-testen).
+
+[Handleiding: WiFi, Bluetooth, ingangsflanken, LoRa en beheer →](docs/MANUAL.md)
 
 <details>
 <summary>Bekijk de webinterface: status, netwerken en beheer</summary>
@@ -72,11 +82,13 @@ Functie 10 is **`0A`**, niet `10`. Voor bediening zonder wachten op een uplink g
 ## Goed om te weten
 
 - **Opslaan is expliciet:** ook een nieuwe netwerkvolgorde wordt pas toegepast met Opslaan. Logs en uptime blijven in RAM.
-- **Back-ups bevatten geen geheime gegevens:** bewaar AppKeys, Bluetooth-PIN en WiFi-wachtwoord apart.
+- **Back-ups bevatten geen geheime gegevens:** bewaar AppKeys, Bluetooth-PIN en de wachtwoorden van accesspoint én router apart. De nieuwe instellingen gaan mee in back-ups; oudere back-ups krijgen daarvoor standaardwaarden.
 - **Energie:** de winst zit in apparatuur die uit kan blijven. Class C luistert vrijwel continu en is geen microampère-slaapstand. De interface toont een dagraming in mAh of Wh.
 - **Bluetooth:** WiFi pauzeert tijdens een opdracht. MPPT User defined/AES gebruikt bestaande VictronConnect-drempels; het BatteryProtect-profiel accepteert product A3B1 en laat beveiligingsdrempels en BMS-modus ongemoeid.
 
 Voed het board onafhankelijk van de geschakelde belasting en houd de gateway bereikbaar als je modem uitstaat. Gebruik passende zekeringen en een lokale uitschakelmogelijkheid; dit is geen veiligheidscontroller. Houd de voeding aangesloten tijdens updates.
+
+Kies zendvermogen en testfrequentie passend bij de toegestane toepassing, antenne en netwerkregels. Een instelbare grens van 22 dBm betekent niet dat dit vermogen overal is toegestaan.
 
 [Arduino-sketch](stm32/stm32.ino) · [Bouwen en broncode](docs/DEVELOPMENT.md) · [Hulp / issues](https://github.com/roelbroersma/victron-lorable-remote/issues)
 

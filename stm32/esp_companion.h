@@ -27,12 +27,17 @@ void companionSetDemand(bool portalWanted, bool contactActive,
 void companionService(uint32_t now);
 bool companionUsbActive();
 
-// False means the active + four-waiting bounded queue is full.
+// False means disabled, invalid function, or another Bluetooth job is active.
 bool companionRequestVictronLoad(uint8_t value);
 bool companionScan();
 void companionSendJson(uint16_t id, bool ok, const char *json);
 bool companionTakeVictronResult(uint8_t &result, uint8_t &attempts,
                                 uint8_t &loadValue);
+// RAM-only diagnostics of the latest job; zero when absent from older firmware.
+uint8_t companionLastVictronStage();
+int16_t companionLastVictronDetail();
+// Actual selected Victron instance, or 255 when not supplied by the companion.
+uint8_t companionLastVictronInstance();
 
 bool companionTakeConfigRequest(CompanionConfigRequest &request);
 void companionConfigResult(uint16_t requestId, bool ok, uint32_t revision,

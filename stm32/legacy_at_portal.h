@@ -5,6 +5,7 @@
 #include "esp_companion.h"
 
 static const uint8_t PORTAL_ACTION_REBOOT = 17; // 7..16 are Bluetooth functions.
+static const uint8_t PORTAL_ACTION_JOIN_NOW = 18;
 
 
 // The portal runs on the stock ESP-AT firmware. The STM32 owns the HTTP
@@ -18,7 +19,7 @@ void legacyPortalResume();
 void legacyPortalService();
 bool legacyPortalIsRunning();
 struct PortalLiveStatus {
-    bool bleAvailable, joined, blePending, inputActive, relayOn, relayPulsing;
+    bool bleAvailable, joined, blePending, inputActive, relayOn, relayPulsing, loraPending;
     uint8_t bleResult, lastEvent, lastActions, loadValue, bleAttempts;
     uint32_t txCount, risingCount, fallingCount, relayChangedAt, inputOverflow;
 };

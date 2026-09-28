@@ -1,4 +1,6 @@
 #include "esp_companion.h"
+#include "companion_timing.h"
+#include "ble_diagnostics.h"
 
 #include "settings.h"
 #include "victron_result_codes.h"
@@ -118,6 +120,9 @@ static bool victronResultReady = false;
 static uint8_t victronResult = 0;
 static uint8_t victronAttempts = 0;
 static uint8_t victronLoadValue = 0xFF;
+static uint8_t victronStage = 0;
+static int16_t victronDetail = 0;
+static uint8_t victronInstance = 255;
 
 static bool configRequestPending = false;
 static CompanionConfigRequest pendingConfigRequest;
@@ -829,6 +834,30 @@ static void finishVictron(uint8_t result, uint8_t attempts, uint8_t loadValue)
 static void handleVictronResult(const char *form, uint16_t id)
 {
     if (!victronPending || id != victronRequestId) return;
+    // Optional bounded diagnostics preserve compatibility with older companion
+    // firmware. They describe stages/status codes only, never credentials.
+    char stageText[4] = {0};
+    char detailText[8] = {0};
+    char instanceText[4] = {0};
+    bool stageFound = false, detailFound = false, instanceFound = false;
+    uint32_t stage = 0;
+    uint32_t instance = 255;
+    int detail = 0;
+    const bool diagnosticsValid =
+        formValue(form, "stage", stageText, sizeof(stageText), stageFound) &&
+        (!stageFound || parseUnsigned(stageText, BLE_STAGE_NONE, BLE_STAGE_SHUTDOWN, stage)) &&
+        formValue(form, "detail", detailText, sizeof(detailText), detailFound) &&
+        (!detailFound || parseSignedSmall(detailText, -32768, 32767, detail)) &&
+        formValue(form, "instance", instanceText, sizeof(instanceText), instanceFound) &&
+        (!instanceFound || parseUnsigned(instanceText, 0, 23, instance));
+    if (!diagnosticsValid)
+    {
+        finishVictron(BLE_COMPANION_TIMEOUT, 0, 0xFF);
+        return;
+    }
+    victronStage = (uint8_t)stage;
+    victronDetail = (int16_t)detail;
+    victronInstance = (uint8_t)instance;
     bool ok = false;
     bool verified = false;
     bool changed = false;
@@ -1257,7 +1286,7 @@ static void sendSnapshot()
     snapshotDirty = false;
 }
 
-static void buildPortalStartPayload()
+static void buildPortalStartPayload(uint16_t wifiConfigId)
 {
     size_t length = 0;
     uint32_t seconds = desiredSecondsRemaining;
@@ -1269,6 +1298,7 @@ static void buildPortalStartPayload()
     if (seconds > 86400UL) seconds = 86400UL;
     txPayload[0] = '\0';
     appendUnsigned(txPayload, sizeof(txPayload), length, "seconds", seconds);
+    appendUnsigned(txPayload, sizeof(txPayload), length, "wifi_cfg", wifiConfigId);
     appendField(txPayload, sizeof(txPayload), length, "password",
                 activeConfig.wifiApPassword);
     appendField(txPayload, sizeof(txPayload), length, "ssid",
@@ -1284,7 +1314,16 @@ static void sendPortalRequest(uint32_t now, bool start, bool retry)
     }
     if (start)
     {
-        buildPortalStartPayload();
+        const uint16_t wifiConfigId=allocateRequestId();
+        size_t length=0;txPayload[0]='\0';
+        appendUnsigned(txPayload,sizeof(txPayload),length,"mode",activeConfig.wifiMode);
+        appendUnsigned(txPayload,sizeof(txPayload),length,"delay",activeConfig.wifiStaDelaySeconds);
+        appendUnsigned(txPayload,sizeof(txPayload),length,"timeout",activeConfig.wifiStaTimeoutSeconds);
+        appendField(txPayload,sizeof(txPayload),length,"ssid",activeConfig.wifiStaSsid);
+        appendField(txPayload,sizeof(txPayload),length,"password",activeConfig.wifiStaPassword);
+        sendFrame("WIFI_CONFIG",wifiConfigId,txPayload);
+        secureZero(txPayload,sizeof(txPayload));
+        buildPortalStartPayload(wifiConfigId);
         sendFrame("PORTAL_START", portalRequestId, txPayload);
         secureZero(txPayload, sizeof(txPayload));
     }
@@ -1399,6 +1438,9 @@ void companionSetDemand(bool portalWanted, bool contactActive,
 void companionService(uint32_t now)
 {
     if(espPowered) readEspFrames();
+    // Reading frames can start/acknowledge a job with a newer millis() than the
+    // caller's loop snapshot. Never age that new job using the stale snapshot.
+    now = millis();
     if(usbReady){
         usbReady=false;otaHoldUntil=millis()+600000UL;
         const SERVICE_MODE_TYPE savedMode=g_rui_cfg_t.mode_type[DEFAULT_SERIAL_CONSOLE];
@@ -1434,12 +1476,12 @@ void companionService(uint32_t now)
         service_mode_cli_init(DEFAULT_SERIAL_CONSOLE);otaHoldUntil=millis()+15000UL;
         return;
     }
-    if(usbAwaiting && now-usbRequestedAt>6000UL){usbAwaiting=false;otaHoldUntil=0;Serial.println("LBR_USB_UNAVAILABLE");}
+    if(usbAwaiting && companionTimeoutReached(now,usbRequestedAt,6001UL)){usbAwaiting=false;otaHoldUntil=0;Serial.println("LBR_USB_UNAVAILABLE");}
     if(usbRequested){
         if(linkReady&&portalRunning&&!victronPending&&!victronQueuedCount){
             usbRequested=false;
             usbAwaiting=true;usbRequestedAt=now;otaHoldUntil=now+720000UL;sendFrame("USB_OPEN",0,usbProtocol==2?"2":"1");
-        }else if(now-usbRequestedAt>15000UL){
+        }else if(companionTimeoutReached(now,usbRequestedAt,15001UL)){
             usbRequested=false;
             Serial.printf("LBR_USB_UNAVAILABLE link=%u portal=%u busy=%u queued=%u\r\n",linkReady,portalRunning,victronPending,victronQueuedCount);
         }
@@ -1459,13 +1501,14 @@ void companionService(uint32_t now)
     // from retaining one job forever.
     if (victronPending &&
         ((!victronDeliveryStarted &&
-          (uint32_t)(now - victronActivatedAt) >=
-              VICTRON_PRE_DELIVERY_TIMEOUT_MS) ||
+          companionTimeoutReached(now, victronActivatedAt,
+                                  VICTRON_PRE_DELIVERY_TIMEOUT_MS)) ||
          (victronEverAccepted &&
-          (uint32_t)(now - victronJobStartedAt) >= VICTRON_JOB_TIMEOUT_MS) ||
+          companionTimeoutReached(now, victronJobStartedAt,
+                                  VICTRON_JOB_TIMEOUT_MS)) ||
          (!victronEverAccepted && victronDeliveryStarted &&
-          (uint32_t)(now - victronDeliveryStartedAt) >=
-              VICTRON_DELIVERY_TIMEOUT_MS)))
+          companionTimeoutReached(now, victronDeliveryStartedAt,
+                                  VICTRON_DELIVERY_TIMEOUT_MS))))
     {
         timeoutCurrentVictronJob(now);
         return;
@@ -1477,6 +1520,7 @@ void companionService(uint32_t now)
     }
 
     readEspFrames();
+    now = millis();
     if (!linkReady)
     {
         if (timeReached(now, nextHelloAt))
@@ -1499,7 +1543,7 @@ void companionService(uint32_t now)
     if (contactDirty) sendContact();
 
     if (portalRequestPending &&
-        (uint32_t)(now - portalRequestSentAt) >= REQUEST_RETRY_MS)
+        companionTimeoutReached(now, portalRequestSentAt, REQUEST_RETRY_MS))
     {
         if (portalRequestAttempts < REQUEST_MAX_ATTEMPTS)
         {
@@ -1526,7 +1570,7 @@ void companionService(uint32_t now)
         if (desiredPortal &&
             ((portalDirty && timeReached(now, nextPortalRetryAt)) ||
              (desiredContact &&
-              (uint32_t)(now - lastPortalRefreshAt) >= ACTIVE_PORTAL_REFRESH_MS)))
+              companionTimeoutReached(now, lastPortalRefreshAt, ACTIVE_PORTAL_REFRESH_MS))))
         {
             sendPortalRequest(now, true, false);
         }
@@ -1544,14 +1588,14 @@ void companionService(uint32_t now)
             sendVictronRequest(now);
         }
         else if (!victronAccepted &&
-                 (uint32_t)(now - victronRequestSentAt) >=
-                     VICTRON_DELIVERY_RETRY_MS)
+                 companionTimeoutReached(now, victronRequestSentAt,
+                                         VICTRON_DELIVERY_RETRY_MS))
         {
             sendVictronRequest(now);
         }
         else if (victronAccepted &&
-                 (uint32_t)(now - victronRequestSentAt) >=
-                     VICTRON_REPLAY_RETRY_MS)
+                 companionTimeoutReached(now, victronRequestSentAt,
+                                         VICTRON_REPLAY_RETRY_MS))
         {
             // Same ID: active duplicates are harmless and, after completion,
             // refresh ACCEPTED or ask the ESP to replay its cached final result.
@@ -1580,6 +1624,9 @@ bool companionRequestVictronLoad(uint8_t value)
     }
     victronPending = true;
     victronActivatedAt = millis();
+    victronStage = 0;
+    victronDetail = 0;
+    victronInstance = 255;
     victronRequestPending = false;
     victronLinkFailures = 0;
     victronAccepted = false;
@@ -1589,6 +1636,10 @@ bool companionRequestVictronLoad(uint8_t value)
 }
 
 bool companionUsbActive(){return usbRawActive;}
+
+uint8_t companionLastVictronStage(){return victronStage;}
+int16_t companionLastVictronDetail(){return victronDetail;}
+uint8_t companionLastVictronInstance(){return victronInstance;}
 
 bool companionTakeVictronResult(uint8_t &result, uint8_t &attempts,
                                 uint8_t &loadValue)
@@ -1603,6 +1654,9 @@ bool companionTakeVictronResult(uint8_t &result, uint8_t &attempts,
         --victronQueuedCount;
         victronPending = true;
         victronActivatedAt = millis();
+        victronStage = 0;
+        victronDetail = 0;
+        victronInstance = 255;
         victronRequestPending = false;
         victronLinkFailures = 0;
         victronAccepted = false;

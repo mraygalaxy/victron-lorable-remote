@@ -23,12 +23,34 @@ jobs:
           /tmp/lorable-network
           g++ -std=c++11 -I tools/tests/manager -I tools/tests tools/tests/network-manager.cpp -o /tmp/lorable-manager
           /tmp/lorable-manager
+          g++ -std=c++11 -I tools/tests/manager -I tools/tests tools/tests/manual-network.cpp -o /tmp/lorable-manual
+          /tmp/lorable-manual
+          g++ -std=c++11 -DMANUAL_NETWORK_STANDARD -I tools/tests/manager -I tools/tests tools/tests/manual-network.cpp -o /tmp/lorable-manual-standard
+          /tmp/lorable-manual-standard
+          g++ -std=c++11 tools/tests/lora-diagnostics.cpp -o /tmp/lorable-radio-status
+          /tmp/lorable-radio-status
+          g++ -std=c++11 -I tools/tests/power tools/tests/lora-power.cpp -o /tmp/lorable-power
+          /tmp/lorable-power
+          g++ -std=c++11 -DTEST_STANDARD -I tools/tests/power tools/tests/lora-power.cpp -o /tmp/lorable-power-standard
+          /tmp/lorable-power-standard
+          g++ -std=c++11 tools/tests/input-timing.cpp -o /tmp/lorable-input
+          /tmp/lorable-input
+          gcc -std=c11 -Wall -Wextra -Werror tools/tests/wifi-client.c -o /tmp/lorable-wifi
+          /tmp/lorable-wifi
+          gcc -std=c99 -Wall -Wextra -Werror tools/tests/victron-transport.c -o /tmp/lorable-victron
+          /tmp/lorable-victron
+          gcc -std=c99 -Wall -Wextra -Werror tools/tests/companion-timing.c -o /tmp/lorable-timing
+          /tmp/lorable-timing
+          gcc -std=c99 -Wall -Wextra -Werror -Itools/tests/stubs -Istm32 tools/tests/victron-session.c -o /tmp/lorable-session
+          /tmp/lorable-session
       - name: Check Milesight and TTN payload codec
         run: node tools/test-codec.cjs
       - name: Check complete firmware integrity
         run: python3 tools/test-update-bundle.py
       - name: Check socket and UART configuration
-        run: python3 tools/test-portal-socket-budget.py
+        run: |
+          python3 tools/test-portal-socket-budget.py
+          python3 tools/test-wifi-handshake.py
       - name: Check embedded web interface
         run: node tools/check-web-asset.mjs
       - name: Check SRAM updater

@@ -2,6 +2,9 @@
 #include "network_manager.h"
 #include "activity_log.h"
 #include "portal_limits.h"
+#include "firmware_version.h"
+#include "lora_diagnostics.h"
+#include "lora_power.h"
 
 
 
@@ -375,6 +378,12 @@ static void sendConfiguration(int8_t link)
     json += ",\"join_eui\":\"" + hexText(snapshotJoinEui, 8) + "\"";
     #define FIELD(name, value) appendJsonNumber(json, name, (long)(value))
     FIELD("io_board", snapshot.ioBoard);
+    FIELD("tx_dbm",snapshot.loraTxDbm);FIELD("wifi_mode",snapshot.wifiMode);
+    FIELD("sta_delay_s",snapshot.wifiStaDelaySeconds);FIELD("sta_timeout_s",snapshot.wifiStaTimeoutSeconds);
+    FIELD("sta_password_set",snapshot.wifiStaPassword[0]!=0);
+    FIELD("rise_hold_s",snapshot.edgeHoldSeconds[0]);FIELD("fall_hold_s",snapshot.edgeHoldSeconds[1]);
+    FIELD("rise_delay_s",snapshot.edgeDelaySeconds[0]);FIELD("fall_delay_s",snapshot.edgeDelaySeconds[1]);
+    json+=",\"sta_ssid\":";json+=jsonEscape(snapshot.wifiStaSsid);
     FIELD("wifi_triggers", snapshot.wifiTriggers);
     FIELD("wifi_input_min", snapshot.wifiAfterInputSeconds/60);
     FIELD("wifi_lora_min", snapshot.wifiAfterLoraSeconds/60);
@@ -438,7 +447,7 @@ static void sendConfiguration(int8_t link)
 
 static void sendStatus(int8_t link)
 {
-    String json("{\"firmware\":\"4.11.1\"");
+    String json("{\"firmware\":\"" LORABLE_FIRMWARE_VERSION "\"");
     #define STATE(name, value) appendJsonNumber(json, name, (uint32_t)(value), false)
     STATE("joined", live.joined);
     STATE("ble_available", live.bleAvailable);
@@ -446,6 +455,11 @@ static void sendStatus(int8_t link)
     STATE("load_value", live.loadValue);
     STATE("ble_attempts", live.bleAttempts);
     STATE("ble_pending", live.blePending);
+    STATE("ble_stage", companionLastVictronStage());
+    STATE("ble_instance", companionLastVictronInstance());
+    // Signed status: do not turn negative NimBLE status into a huge uint32.
+    json += ",\"ble_detail\":";
+    json += String(companionLastVictronDetail());
     STATE("input_enabled", snapshot.inputEnabled);
     STATE("input_active", live.inputActive);
     STATE("relay_enabled", snapshot.relayEnabled);
@@ -464,6 +478,24 @@ static void sendStatus(int8_t link)
     STATE("network_missed",networkMissedChecks());STATE("network_preempt_s",networkPreemptRemaining());
     STATE("network_retry_s",networkRetryRemaining());
     STATE("effective_status_min",networkStatusIntervalMinutes());
+    const LoraDiagnostics &radio = loraDiagnostics;
+    const uint32_t now = activitySeconds();
+    STATE("lora_pending", live.loraPending);
+    STATE("lora_join_pending", networkManualJoinPending());
+    STATE("lora_tx_seq", radio.sequence); STATE("lora_tx_state", radio.txState);
+    STATE("lora_tx_ack", radio.ack); STATE("lora_tx_slot", radio.txSlot);
+    STATE("lora_tx_age_s", now - radio.txAt); STATE("lora_ack_count", radio.ackCount);
+    STATE("lora_rx_seen", radio.rxSeen); STATE("lora_rx_slot", radio.rxSlot);
+    STATE("lora_rx_age_s", now - radio.rxAt);
+    STATE("lora_join_seen", radio.joinSeen); STATE("lora_join_slot", radio.joinSlot);
+    STATE("lora_join_age_s", now - radio.joinAt);
+    STATE("lora_max_dbm",snapshot.loraTxDbm);
+    #define SIGNED_STATE(name, value) appendJsonNumber(json, name, (uint32_t)(value), true)
+    SIGNED_STATE("lora_tx_code", radio.txCode); SIGNED_STATE("lora_join_code", radio.joinCode);
+    SIGNED_STATE("lora_join_request_code", networkJoinRequestCode());
+    SIGNED_STATE("lora_rssi_dbm", radio.rssi); SIGNED_STATE("lora_snr_db", radio.snr);
+    SIGNED_STATE("lora_tx_dbm", loraConfiguredPowerDbm());
+    #undef SIGNED_STATE
     #undef STATE
     json += "}";
     sendJson(link, true, json);
@@ -613,6 +645,10 @@ static bool buildUpdate(const char *body, CompanionConfigRequest &request)
     if (wifiPassword[0] != '\0')
         strncpy(request.config.wifiApPassword, wifiPassword,
                 sizeof(request.config.wifiApPassword) - 1);
+    if(!formValue(body,"sta_ssid",request.config.wifiStaSsid,sizeof(request.config.wifiStaSsid),true) ||
+       !formValue(body,"sta_password",wifiPassword,sizeof(wifiPassword),false))return false;
+    if(wifiPassword[0])strncpy(request.config.wifiStaPassword,wifiPassword,sizeof(request.config.wifiStaPassword)-1);
+    memset(wifiPassword,0,sizeof(wifiPassword));
 
     uint8_t parsed[16] = {0};
     if (!parseHex(devEuiText, parsed, 8)) return false;
@@ -625,7 +661,7 @@ static bool buildUpdate(const char *body, CompanionConfigRequest &request)
     #define READ_NUMBER(name, minValue, maxValue, target) \
         if (!readFormNumber(body, name, minValue, maxValue, unsignedValue)) return false; \
         target = unsignedValue
-    READ_NUMBER("schema", 9, 9, unsignedValue);
+    READ_NUMBER("schema", 10, 10, unsignedValue);
     READ_NUMBER("expected_revision",0,0xFFFFFFFFUL,unsignedValue);
     if(unsignedValue!=runtimeConfigRevision()) return false;
     READ_NUMBER("language", 0, 1, request.config.language);
@@ -635,6 +671,14 @@ static bool buildUpdate(const char *body, CompanionConfigRequest &request)
     READ_NUMBER("fport", 1, 223, request.config.loraFport);
     READ_NUMBER("subband", 0, 8, request.config.loraSubband);
     READ_NUMBER("adr", 0, 1, request.config.adrEnabled);
+    READ_NUMBER("tx_dbm",0,22,request.config.loraTxDbm);
+    READ_NUMBER("wifi_mode",0,2,request.config.wifiMode);
+    READ_NUMBER("sta_delay_s",0,600,request.config.wifiStaDelaySeconds);
+    READ_NUMBER("sta_timeout_s",10,300,request.config.wifiStaTimeoutSeconds);
+    READ_NUMBER("rise_hold_s",0,3600,request.config.edgeHoldSeconds[0]);
+    READ_NUMBER("fall_hold_s",0,3600,request.config.edgeHoldSeconds[1]);
+    READ_NUMBER("rise_delay_s",0,3600,request.config.edgeDelaySeconds[0]);
+    READ_NUMBER("fall_delay_s",0,3600,request.config.edgeDelaySeconds[1]);
     READ_NUMBER("rx2_custom", 0, 1, request.config.rx2Custom);
     READ_NUMBER("rx2_freq", 100000000, 1000000000, request.config.rx2Frequency);
     READ_NUMBER("rx2_dr", 0, 13, request.config.rx2DataRate);
@@ -811,6 +855,7 @@ static void handleRequest()
             if (!strcmp(command, "relay_pulse") && snapshot.relayEnabled) action = 3;
             if (!strcmp(command, "relay_off") && snapshot.relayEnabled) action = 4;
             if (!strcmp(command, "uplink")) action = 5;
+            if (!strcmp(command, "join_now") && networkJoinNow()) action = PORTAL_ACTION_JOIN_NOW;
             if (!strcmp(command, "reboot") && !updatePending && !live.blePending)
                 action = PORTAL_ACTION_REBOOT;
 #if !LEGACY_BLE_AT
@@ -821,7 +866,8 @@ static void handleRequest()
             }
 #endif
         }
-        if (action) pendingAction = action;
+        // Join-now is already validated/queued in RAM; do not request it twice.
+        if (action && action != PORTAL_ACTION_JOIN_NOW) pendingAction = action;
         paused = true;
         sendMessagePage(link, action != 0, action ? "queued" : "action_unavailable");
         paused = false;

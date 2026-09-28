@@ -53,3 +53,48 @@ static bool victron_find_value(const uint8_t *frame,size_t n,uint8_t instance,ui
     if(!found || found_len>capacity) return false;
     memcpy(out,frame+found_at,found_len); *length=found_len; return true;
 }
+
+/* Parse the full message before accepting discovery/subscribe replies. Masks
+ * cover the supported instance range 0..23, not device-specific hardcoding.
+ */
+static bool victron_session_frame(const uint8_t *frame,size_t n,uint32_t *devices,
+                                 uint32_t *subscribed,uint8_t instance,uint8_t subscribe_target,
+                                 uint16_t awaited,bool *rejected) {
+    vic_cursor_t c={frame,n,0}; uint32_t dev=0,sub=0; bool reject=false;
+    if(!frame || !n || n>512) return false;
+    while(c.at<n) {
+        uint32_t op,ins,key,v; unsigned m;
+        if(!vic_uint(&c,&op)) return false;
+        if(op==2) {
+            bool indefinite=c.at<c.n && c.p[c.at]==0x9f;
+            uint32_t left=0;
+            if(indefinite) ++c.at;
+            else if(!vic_head(&c,&m,&left) || m!=4 || (left&1)) return false;
+            while(indefinite ? c.at<c.n && c.p[c.at]!=0xff : left!=0) {
+                if(!vic_uint(&c,&ins) || !vic_uint(&c,&v)) return false;
+                if(ins<24) dev|=1u<<ins;
+                if(!indefinite) left-=2;
+            }
+            if(indefinite) { if(c.at>=c.n) return false; ++c.at; }
+        } else {
+            if((op!=7 && op!=8 && op!=9) || !vic_uint(&c,&ins) || !vic_uint(&c,&key)) return false;
+            if(op==8) { if(!vic_skip(&c,0)) return false; }
+            else {
+                if(!vic_head(&c,&m,&v) || (m!=0 && m!=1)) return false;
+                bool ok=m==0 && v==0;
+                if(op==7 && key==3 && subscribe_target<24) {
+                    /* SmartSolar replies 07 00 03 00 even for Subscribe(3).
+                     * Attribute the acknowledgement only to the one request
+                     * currently in flight; never pre-ack another instance.
+                     */
+                    if(ins==0 || ins==subscribe_target) {
+                        if(ok) sub|=1u<<subscribe_target;
+                        else reject=true;
+                    }
+                }
+                if(op==9 && ins==instance && key==awaited && !ok) reject=true;
+            }
+        }
+    }
+    *devices|=dev; *subscribed|=sub; *rejected|=reject; return true;
+}

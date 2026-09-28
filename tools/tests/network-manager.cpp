@@ -10,10 +10,13 @@ ManagerFakeApi api;
 static uint32_t nowSeconds;
 static LoRaMacNvmData_t radioContext;
 static uint16_t persistentNonce;
-static unsigned reserveWrites,joinCalls,ledgerWrites;
+static unsigned reserveWrites,joinCalls,ledgerWrites,joinRequests,activationClears;
 static uint32_t savedJoinNonce[4];
 static uint8_t chosenJoin,appRoot,nwkRoot;
-static bool radioBusy,failReserve,failLedger;
+static bool radioBusy,failReserve,failLedger,rejectJoin;
+#if !defined(LORABLE_MANUAL_RADIO_TEST)
+bool loraApplyPower(){return true;}
+#endif
 uint32_t activitySeconds(){return nowSeconds;}
 void activityAdd(uint8_t,uint32_t){}
 bool networkNonceLoad(const uint8_t*,const uint8_t*join,const uint8_t*,uint32_t &value){value=savedJoinNonce[join[0]];return true;}
@@ -26,7 +29,7 @@ int32_t service_lora_set_DevNonce(uint16_t value){if(failReserve)return -1;persi
 bool LoRaMacIsBusy(){return radioBusy;}
 LoRaMacStatus_t LoRaMacMibGetRequestConfirm(MibRequestConfirm_t *m){assert(m->Type==MIB_NVM_CTXS);m->Param.Contexts=&radioContext;return LORAMAC_STATUS_OK;}
 LoRaMacStatus_t LoRaMacMibSetRequestConfirm(MibRequestConfirm_t *m){
- if(m->Type==MIB_NETWORK_ACTIVATION)api.lorawan.njs.value=0;
+ if(m->Type==MIB_NETWORK_ACTIVATION){api.lorawan.njs.value=0;++activationClears;}
  if(m->Type==MIB_JOIN_EUI)chosenJoin=m->Param.JoinEui[0];
  if(m->Type==MIB_APP_KEY)appRoot=m->Param.AppKey[0];
  if(m->Type==MIB_NWK_KEY)nwkRoot=m->Param.NwkKey[0];
@@ -37,17 +40,18 @@ LoRaMacStatus_t LoRaMacMlmeRequest(MlmeReq_t *m){
  assert(m->Type==MLME_JOIN&&m->Req.Join.NetworkActivation==ACTIVATION_TYPE_OTAA);
  assert(appRoot==nwkRoot&&appRoot==chosenJoin+1);
  assert(persistentNonce>radioContext.Crypto.DevNonce); // reservation precedes RF
+ ++joinRequests;if(rejectJoin)return LORAMAC_STATUS_ERROR; // e.g. regional duty-cycle delay
  ++radioContext.Crypto.DevNonce;++joinCalls;return LORAMAC_STATUS_OK;
 }
 }
-static RuntimeConfig configuration(){RuntimeConfig c={};c.loraRegion=4;c.networkHealthMinutes=15;c.statusIntervalMinutes=15;
+static RuntimeConfig configuration(){RuntimeConfig c={};c.loraRegion=4;c.loraTxDbm=14;c.networkHealthMinutes=15;c.statusIntervalMinutes=15;
  for(unsigned i=0;i<4;++i){c.networkOrder[i]=i;c.networks[i].joinEui[0]=i;c.networks[i].appKey[0]=i+1;c.networks[i].preemptMinutes=15;}
  c.networks[0].enabled=c.networks[1].enabled=1;return c;
 }
 static void boot(RuntimeConfig &c,uint16_t nonce){
- api=ManagerFakeApi();radioContext={};radioBusy=failReserve=failLedger=false;
+ api=ManagerFakeApi();radioContext={};radioBusy=failReserve=failLedger=rejectJoin=false;
  nowSeconds=0;persistentNonce=nonce;radioContext.Crypto.DevNonce=nonce;
- reserveWrites=joinCalls=ledgerWrites=0;uint8_t dev[8]={42};networkBegin(c,dev);
+ reserveWrites=joinCalls=ledgerWrites=joinRequests=activationClears=0;uint8_t dev[8]={42};networkBegin(c,dev);
  assert(api.lorawan.autoJoinDisabled);
 }
 static void tick(uint32_t time){nowSeconds=time;networkTick(false);}
@@ -81,4 +85,5 @@ int main(){
  nowSeconds=1808;networkTxComplete(true,false);assert(!networkJoined()&&networkState()==NetworkPolicy::WAITING);
  c.networks[0].kind=1;boot(c,600);tick(0);complete(8,true,54);assert(networkStatusIntervalMinutes()==240);
  puts("PASS: actual manager integration, RAM key selection, per-network ledger, preempt/rejoin, reserved nonce blocks/reboot/fail-closed, ACK health, TTN status clamp");
+ return 0;
 }

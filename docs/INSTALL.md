@@ -8,7 +8,7 @@
 
 Voor een **RAK11162 met RAK-fabrieksfirmware**, op een WisBlock-basisboard met **RAK19012 USB-aansluiting**. Benodigd: Windows 10/11, een USB-datakabel en een ingeschakelde WiFi-adapter met automatische IP-instellingen (DHCP).
 
-1. Download **LoRaBLE-Remote-4.11.1-Windows.zip** en pak alles uit.
+1. Download **LoRaBLE-Remote-4.12.0-Windows.zip** en pak alles uit.
 2. Koppel geschakelde belastingen los en sluit het board via USB aan. Sluit Serial Monitor als die openstaat.
 3. Open **Install.cmd**, kies je taal en COM-poort en bevestig met `INSTALL`.
 4. Sta de Windows-beheerdersvraag toe en, indien gevraagd, locatietoegang voor WiFi.
@@ -28,14 +28,16 @@ Wijzig het WiFi-wachtwoord meteen. WiFi blijft standaard één uur na opstart be
 
 Kies je Bluetooth-apparaat en eventuele I/O-module, maak functies aan en vul de [LoRaWAN-gegevens](NETWORKS.md) in. Klik **Opslaan** om wijzigingen toe te passen — ook na het verplaatsen van netwerkprofielen. Controleer de bediening eerst zonder aangesloten belasting.
 
+Wil je je eigen router gebruiken? Kies onder **WiFi** de routermodus en vul WiFi-naam en wachtwoord in. Het board wacht de ingestelde **Opstarttijd router** af en vraagt via DHCP een adres aan. Open daarna het aan dit board toegewezen adres uit de apparatenlijst van je router. Alleen bij mislukte verbinding/DHCP of verbindingsverlies verschijnt het eigen terugvalnetwerk op **192.168.4.1**; zodra DHCP lukt, gaat dat netwerk weer uit. [Alle instellingen →](MANUAL.md)
+
 ### Firmware bijwerken
 
 Voor een bestaande installatie met de complete updater (**LoRaBLE 4.11 of nieuwer**). Instellingen blijven behouden. Download vooraf een back-up via **Beheer**.
 
 **Via WiFi**
 
-1. Download **LoRaBLE-Remote-4.11.1.bin** uit de [laatste release](https://github.com/roelbroersma/victron-lorable-remote/releases/latest).
-2. Verbind met de WiFi van het board en open **Beheer → Firmware bijwerken**.
+1. Download **LoRaBLE-Remote-4.12.0.bin** uit de [laatste release](https://github.com/roelbroersma/victron-lorable-remote/releases/latest).
+2. Open de webinterface via het eigen WiFi-netwerk of het toegewezen routeradres en kies **Beheer → Firmware bijwerken**.
 3. Kies **Bladeren… → het .bin-bestand → Updaten** en bevestig.
 4. Laat de voeding aangesloten tot het board opnieuw is opgestart. Verbind daarna opnieuw.
 
@@ -45,6 +47,8 @@ Pak de Windows-ZIP uit, sluit het board via USB aan en open **Install.cmd**. De 
 
 Beide routes gebruiken **hetzelfde complete .bin-bestand**. Gebruik de meegeleverde installer of de webinterface, geen generieke chipflasher.
 
+Opgeslagen WiFi-instellingen blijven behouden. Na een update in routermodus gebruik je dus het DHCP-adres, niet automatisch 192.168.4.1. In 4.12 begint de nieuwe zendsterkte-instelling op **14 dBm**; controleer deze onder LoRaWAN. Maak tijdens een update geen schakelopdrachten en houd de voeding aangesloten.
+
 ### Back-up, herstellen en herstarten
 
 | Onder Beheer | Bediening |
@@ -53,7 +57,7 @@ Beide routes gebruiken **hetzelfde complete .bin-bestand**. Gebruik de meegeleve
 | Herstellen | **Bladeren… → .json kiezen → Herstellen** |
 | Opnieuw opstarten | **Herstarten** en bevestigen |
 
-Een back-up bevat opgeslagen instellingen, maar **geen AppKeys, Bluetooth-PIN, WiFi-wachtwoord of DevEUI**. Bewaar die apart. Herstellen vervangt formulierwijzigingen en bewaart de bestaande sleutels op het board; controleer of die bij de geïmporteerde netwerkprofielen horen.
+Een back-up bevat opgeslagen instellingen, maar **geen AppKeys, Bluetooth-PIN, WiFi-wachtwoorden of DevEUI**. Bewaar die apart. Herstellen vervangt formulierwijzigingen en bewaart de bestaande sleutels op het board; controleer of die bij de geïmporteerde netwerkprofielen horen.
 
 Herstarten is geen fabrieksreset: instellingen blijven staan, WiFi wordt onderbroken, recente gebeurtenissen worden gewist en het relais valt af.
 
@@ -71,7 +75,7 @@ Broncode, handmatig flashen en technische installatievoorwaarden staan bij [Bouw
 
 For a **RAK11162 with RAK factory firmware**, on a WisBlock baseboard with a **RAK19012 USB connection**. You need Windows 10/11, a USB data cable and enabled WiFi with automatic IP settings (DHCP).
 
-1. Download **LoRaBLE-Remote-4.11.1-Windows.zip** and extract everything.
+1. Download **LoRaBLE-Remote-4.12.0-Windows.zip** and extract everything.
 2. Disconnect switched loads, connect the board by USB and close Serial Monitor.
 3. Open **Install.cmd**, choose your language and COM port, then type `INSTALL`.
 4. Allow Windows administrator access and WiFi location access if requested.
@@ -85,21 +89,25 @@ Connect to WiFi **Victron LoRaBLE Remote**, password **CHANGE-ME-FIRST**, then o
 
 Select your Bluetooth device and optional I/O module, add functions and enter [LoRaWAN credentials](NETWORKS.md#english). Click **Save** to apply changes, including network priority. Check operation with loads disconnected first.
 
+To use your own router, select router mode under **WiFi** and enter its network name and password. The board waits for **Router startup time**, then obtains an address through DHCP. Open the address assigned to this board, shown in your router's device list. Only failed connection/DHCP or connection loss starts the fallback network at **192.168.4.1**; successful DHCP turns it off. [Settings guide →](MANUAL.md#english)
+
 ### Update firmware
 
 For an existing installation with the complete updater (**LoRaBLE 4.11 or later**). Settings are retained. Download a backup from **Manage** first.
 
-**WiFi:** download **LoRaBLE-Remote-4.11.1.bin**, connect to the board and open **Manage → Update firmware → Browse… → select the file → Update**. Confirm, maintain power through restart and reconnect.
+**WiFi:** download **LoRaBLE-Remote-4.12.0.bin**, open the board through its own WiFi or assigned router address, then **Manage → Update firmware → Browse… → select the file → Update**. Confirm, maintain power through restart and reconnect.
 
 **USB:** extract the Windows ZIP, connect the board and open **Install.cmd**. Updates use USB only; your PC stays on its current WiFi network.
 
 Both routes use **the same complete .bin file**. Use the supplied installer or web interface, not a generic chip flasher.
 
+Saved WiFi settings are retained: router mode continues to use its DHCP address, not automatically 192.168.4.1. The new transmit-power setting in 4.12 starts at **14 dBm**; review it under LoRaWAN. Avoid switching commands during updates and keep power connected.
+
 ### Backup, restore and restart
 
 Under **Manage**, use **Download backup**, **Browse… → Restore**, or **Restart**.
 
-Backups contain saved settings, but **no AppKeys, Bluetooth PIN, WiFi password or DevEUI**. Keep these separately. Restore replaces unsaved form changes and retains existing device keys; ensure they match the imported network profiles. Restart retains settings, disconnects WiFi, clears recent events and releases the relay; it is not a factory reset.
+Backups contain saved settings, but **no AppKeys, Bluetooth PIN, WiFi passwords or DevEUI**. Keep these separately. Restore replaces unsaved form changes and retains existing device keys; ensure they match the imported network profiles. Restart retains settings, disconnects WiFi, clears recent events and releases the relay; it is not a factory reset.
 
 ### Need help?
 

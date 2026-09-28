@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "ble_diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +54,9 @@ typedef struct {
     /* Internal recovery signal; this field is never included in UART payloads. */
     bool restart_required;
     uint32_t advertisements;
+    uint8_t stage;
+    uint8_t instance;
+    int16_t detail; // NimBLE status; zero means no lower-level error recorded.
 } victron_result_t;
 
 bool victron_ble_request_valid(const victron_request_t *request);
@@ -60,7 +64,9 @@ const char *victron_ble_result_name(victron_result_code_t code);
 
 /*
  * Runs synchronously in the radio-manager task. WiFi must already be stopped.
- * MPPT changes only EDAB mode 0..7, preserving the upper bits. Generic writes
+ * MPPT changes only EDAB mode 0..7, preserving the upper bits. Forced ON/OFF
+ * additionally verifies EDA8 output state; LoRa load_value remains EDAB.
+ * Transport credits and session keepalive are RAM-only. Generic writes
  * the explicitly configured GATT characteristic. BatteryProtect uses instance 0,
  * mode 0x0200, identity validation and actual-output 0xEDA8 readback.
  */

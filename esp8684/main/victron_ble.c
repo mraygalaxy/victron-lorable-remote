@@ -1,6 +1,7 @@
 #include "victron_ble.h"
 #include "bluetooth_modes.h"
 #include "victron_frames.h"
+#include "victron_transport.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -10,6 +11,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
@@ -81,14 +83,32 @@ typedef struct {
     uint16_t awaited_register;
     uint8_t register_value[32];
     size_t register_length;
-    unsigned received_chunks;
+    victron_flow_t flow;
+    uint32_t devices, subscribed;
+    uint8_t subscribe_target;
+    bool response_rejected;
+    int64_t next_keepalive_us;
     bool load_value_available;
     uint8_t load_value;
     int64_t attempt_deadline_us;
+    uint8_t stage;
+    int16_t detail;
 } victron_context_t;
 
 static victron_context_t context;
 static portMUX_TYPE notification_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void diagnostic_stage(uint8_t stage)
+{
+    context.stage = stage;
+    context.detail = 0;
+}
+
+static bool diagnostic_status(int status)
+{
+    if (status != 0) context.detail = (int16_t)status;
+    return status == 0;
+}
 
 static void give_if_created(SemaphoreHandle_t semaphore)
 {
@@ -291,6 +311,19 @@ static void reset_notification_capture(void)
 
 static void inspect_notification(uint16_t handle, struct os_mbuf *buffer)
 {
+    if(buffer && handle==context.control.val_handle) {
+        uint8_t control[8]; const uint16_t n=OS_MBUF_PKTLEN(buffer);
+        if(n && n<=sizeof(control) && !os_mbuf_copydata(buffer,0,n,control)) {
+            portENTER_CRITICAL(&notification_lock);
+            victron_flow_control(&context.flow,control,n);
+            if(control[0]==0xf8) {
+                context.notification_length=0; context.notification_overflow=false;
+            }
+            portEXIT_CRITICAL(&notification_lock);
+            give_if_created(context.value_done);
+        }
+        return;
+    }
     if (buffer == NULL || (handle!=context.last_data.val_handle && handle!=context.data.val_handle)) {
         return;
     }
@@ -303,7 +336,7 @@ static void inspect_notification(uint16_t handle, struct os_mbuf *buffer)
     bool found = false;
     const bool copied=packet_length<=sizeof(chunk) && os_mbuf_copydata(buffer,0,packet_length,chunk)==0;
     portENTER_CRITICAL(&notification_lock);
-    ++context.received_chunks;
+    victron_flow_received(&context.flow);
     if(!copied || context.notification_length+packet_length>sizeof(context.notification))
         context.notification_overflow=true;
     else if(!context.notification_overflow) {
@@ -311,6 +344,11 @@ static void inspect_notification(uint16_t handle, struct os_mbuf *buffer)
         context.notification_length+=packet_length;
     }
     if(handle==context.last_data.val_handle) {
+        if(!context.notification_overflow) {
+            victron_session_frame(context.notification,context.notification_length,
+                &context.devices,&context.subscribed,context.instance,context.subscribe_target,
+                context.awaited_register,&context.response_rejected);
+        }
         if(!context.notification_overflow && context.awaited_register &&
            victron_find_value(context.notification,context.notification_length,context.instance,
                context.awaited_register,context.register_value,sizeof(context.register_value),&context.register_length)) {
@@ -321,7 +359,7 @@ static void inspect_notification(uint16_t handle, struct os_mbuf *buffer)
     }
     portEXIT_CRITICAL(&notification_lock);
     memset(chunk, 0, sizeof(chunk));
-    if (found) {
+    if (found || handle==context.last_data.val_handle) {
         give_if_created(context.value_done);
     }
 }
@@ -462,6 +500,7 @@ static void require_stack_restart(victron_result_t *result)
     /* Every failure frame must remain compatible with the STM invariant. */
     result->verified = false;
     result->restart_required = true;
+    result->stage = BLE_STAGE_SHUTDOWN;
 }
 
 /*
@@ -475,10 +514,13 @@ static bool stop_and_deinit_stack(victron_result_t *result)
     const int stop_status = nimble_port_stop();
     if (stop_status != 0) {
         require_stack_restart(result);
+        result->detail = (int16_t)stop_status;
         return false;
     }
-    if (nimble_port_deinit() != ESP_OK) {
+    const esp_err_t deinit_status = nimble_port_deinit();
+    if (deinit_status != ESP_OK) {
         require_stack_restart(result);
+        result->detail = (int16_t)deinit_status;
         return false;
     }
     return true;
@@ -493,6 +535,11 @@ static void reset_gatt_state(void)
     memset(&context.data, 0, sizeof(context.data));
     context.gatt_status = BLE_HS_EUNKNOWN;
     context.write_status = BLE_HS_EUNKNOWN;
+    memset(&context.flow,0,sizeof(context.flow));
+    context.devices=0;context.subscribed=0;context.response_rejected=false;
+    context.subscribe_target=255;
+    context.next_keepalive_us=0;context.awaited_register=0;
+    context.notification_overflow=false;
     reset_notification_capture();
 }
 
@@ -520,8 +567,11 @@ static int service_discovered(uint16_t connection_handle,
             }
             return 0;
         }
+        /* Prefer the known transport even when another variant is advertised
+         * later. Discovery order must not select a different service. */
         if (uuid_prefix(&service->uuid.u, "306b0001-b081-4037-83dc-e59fcc3cdfd0") ||
-            (context.request->driver!=3 && uuid_prefix(&service->uuid.u, "306b0001-b081-4037-83dc-e59fcc3cdfd1"))) {
+            (!context.service_start && context.request->driver!=3 &&
+             uuid_prefix(&service->uuid.u, "306b0001-b081-4037-83dc-e59fcc3cdfd1"))) {
             context.service_start = service->start_handle;
             context.service_end = service->end_handle;
         }
@@ -573,7 +623,8 @@ static int characteristic_discovered(uint16_t connection_handle,
         if (slot != NULL) {
             slot->def_handle = characteristic->def_handle;
             slot->val_handle = characteristic->val_handle;
-            slot->found = true;
+            slot->found = (characteristic->properties & BLE_GATT_CHR_PROP_WRITE_NO_RSP) &&
+                          (characteristic->properties & BLE_GATT_CHR_PROP_NOTIFY);
         }
         return 0;
     }
@@ -627,22 +678,57 @@ static int write_complete(uint16_t connection_handle,
 
 static bool wait_gatt(void)
 {
-    return take_before_attempt_deadline(context.gatt_done, VIC_GATT_WAIT_MS) &&
-           context.gatt_status == 0 && context.connected && !context.stack_reset;
+    if (!take_before_attempt_deadline(context.gatt_done, VIC_GATT_WAIT_MS))
+        return diagnostic_status(BLE_HS_ETIMEOUT);
+    return diagnostic_status(context.gatt_status) && context.connected && !context.stack_reset;
+}
+
+static bool connection_authenticated(void)
+{
+    struct ble_gap_conn_desc description;
+    return context.connected &&
+        ble_gap_conn_find(context.connection_handle, &description) == 0 &&
+        description.sec_state.encrypted && description.sec_state.authenticated;
+}
+
+static int mtu_complete(uint16_t connection_handle,
+                        const struct ble_gatt_error *error,
+                        uint16_t mtu, void *argument)
+{
+    (void)argument;
+    if (connection_handle != context.connection_handle) return 0;
+    context.gatt_status = error->status;
+    /* A completed explicit refusal leaves the default ATT MTU usable. An
+     * unanswered request does not: disconnect rather than overlap procedures. */
+    if (error->status == BLE_HS_ATT_ERR(BLE_ATT_ERR_REQ_NOT_SUPPORTED))
+        context.gatt_status = ble_att_mtu(connection_handle) >= 23 ? 0 : BLE_HS_EBADDATA;
+    else if (!error->status && mtu < 23) context.gatt_status = BLE_HS_EBADDATA;
+    give_if_created(context.gatt_done);
+    return 0;
+}
+
+static bool negotiate_mtu(void)
+{
+    diagnostic_stage(BLE_STAGE_MTU);
+    context.gatt_status = BLE_HS_EUNKNOWN;
+    drain(context.gatt_done);
+    return diagnostic_status(ble_gattc_exchange_mtu(context.connection_handle, mtu_complete, NULL)) && wait_gatt();
 }
 
 static bool discover_service_and_characteristics(void)
 {
     reset_gatt_state();
+    diagnostic_stage(BLE_STAGE_SERVICES);
     drain(context.gatt_done);
     int status = ble_gattc_disc_all_svcs(context.connection_handle,
                                          service_discovered,
                                          NULL);
-    if (status != 0 || !wait_gatt() || context.service_start == 0 ||
+    if (!diagnostic_status(status) || !wait_gatt() || context.service_start == 0 ||
         context.service_end < context.service_start) {
         return false;
     }
 
+    diagnostic_stage(BLE_STAGE_CHARACTERISTICS);
     context.gatt_status = BLE_HS_EUNKNOWN;
     drain(context.gatt_done);
     status = ble_gattc_disc_all_chrs(context.connection_handle,
@@ -650,7 +736,7 @@ static bool discover_service_and_characteristics(void)
                                      context.service_end,
                                      characteristic_discovered,
                                      NULL);
-    if (status != 0 || !wait_gatt() || !context.control.found ||
+    if (!diagnostic_status(status) || !wait_gatt() || !context.control.found ||
         (!context.request->generic_kind && (!context.last_data.found || !context.data.found))) {
         return false;
     }
@@ -660,6 +746,7 @@ static bool discover_service_and_characteristics(void)
         &context.control, &context.last_data, &context.data
     };
     for (size_t index = 0; index < sizeof(slots) / sizeof(slots[0]); ++index) {
+        diagnostic_stage(BLE_STAGE_DESCRIPTORS);
         characteristic_slot_t *slot = slots[index];
         if (slot->end_handle <= slot->val_handle) {
             return false;
@@ -671,7 +758,7 @@ static bool discover_service_and_characteristics(void)
                                          slot->end_handle,
                                          descriptor_discovered,
                                          slot);
-        if (status != 0 || !wait_gatt() || slot->cccd_handle == 0) {
+        if (!diagnostic_status(status) || !wait_gatt() || slot->cccd_handle == 0) {
             return false;
         }
     }
@@ -691,11 +778,12 @@ static bool write_attribute(uint16_t handle, const uint8_t *bytes, size_t length
                                             (uint16_t)length,
                                             write_complete,
                                             NULL);
-    if (status != 0) {
+    if (!diagnostic_status(status)) {
         return false;
     }
-    return take_before_attempt_deadline(context.write_done, VIC_WRITE_WAIT_MS) &&
-           context.write_status == 0 && context.connected && !context.stack_reset;
+    if (!take_before_attempt_deadline(context.write_done, VIC_WRITE_WAIT_MS))
+        return diagnostic_status(BLE_HS_ETIMEOUT);
+    return diagnostic_status(context.write_status) && context.connected && !context.stack_reset;
 }
 
 static int generic_read_complete(uint16_t connection_handle,const struct ble_gatt_error *error,
@@ -712,32 +800,121 @@ static int generic_read_complete(uint16_t connection_handle,const struct ble_gat
     }
     give_if_created(context.gatt_done);return 0;
 }
+static bool flush_receive_credits(void)
+{
+    if(!context.connected || context.stack_reset || esp_timer_get_time()>=context.attempt_deadline_us) return false;
+    portENTER_CRITICAL(&notification_lock);
+    const bool failed=context.flow.failed || context.response_rejected;
+    const uint8_t received=victron_flow_return_rx(&context.flow);
+    portEXIT_CRITICAL(&notification_lock);
+    if(failed) return false;
+    if(received) {
+        const uint8_t credits[]={0xf9,received};
+        if(!diagnostic_status(ble_gattc_write_no_rsp_flat(context.connection_handle,context.control.val_handle,credits,sizeof(credits)))) return false;
+    }
+    return true;
+}
 static bool protocol_write(uint16_t handle,const uint8_t *data,size_t n)
 {
-    if(context.request->driver!=3) return write_attribute(handle,data,n);
-    if(!context.connected || context.stack_reset || esp_timer_get_time()>=context.attempt_deadline_us) return false;
-    unsigned received;
-    portENTER_CRITICAL(&notification_lock);
-    received=context.received_chunks;
-    if(received>=32) context.received_chunks=0;
-    portEXIT_CRITICAL(&notification_lock);
-    if(received>=32) {
-        const uint8_t credits[]={0xf9,0x41};
-        if(ble_gattc_write_no_rsp_flat(context.connection_handle,context.control.val_handle,credits,sizeof(credits))) return false;
+    if(!handle || !data || !victron_request_fits(n) || !flush_receive_credits()) return false;
+    if(handle!=context.control.val_handle) {
+        const int64_t until=esp_timer_get_time()+(int64_t)VIC_WRITE_WAIT_MS*1000;
+        while(true) {
+            portENTER_CRITICAL(&notification_lock);
+            const bool ready=victron_flow_take_tx(&context.flow);
+            portEXIT_CRITICAL(&notification_lock);
+            if(ready) break;
+            if(!flush_receive_credits()) return false;
+            if(esp_timer_get_time()>=until || !delay_before_attempt_deadline(10)) {
+                diagnostic_stage(BLE_STAGE_TX_CREDIT);
+                return diagnostic_status(BLE_HS_ETIMEOUT);
+            }
+        }
     }
-    return ble_gattc_write_no_rsp_flat(context.connection_handle,handle,data,n)==0;
+    return diagnostic_status(ble_gattc_write_no_rsp_flat(context.connection_handle,handle,data,n));
+}
+static bool maintain_session(void)
+{
+    if(!flush_receive_credits()) return false;
+    if(context.next_keepalive_us && esp_timer_get_time()>=context.next_keepalive_us) {
+        const uint8_t previous_stage=context.stage;
+        const uint8_t keepalive[]={6,0,0x82,0x18,0x93,0x42,0x10,0x27};
+        context.next_keepalive_us=esp_timer_get_time()+3000000;
+        diagnostic_stage(BLE_STAGE_KEEPALIVE);
+        if(!protocol_write(context.last_data.val_handle,keepalive,sizeof(keepalive))) return false;
+        context.stage=previous_stage;
+    }
+    return true;
+}
+/* Service credits while waiting for a response, not just before the next GET.
+ * Startup notifications alone can exhaust the peripheral's initial window.
+ */
+static bool wait_session(unsigned what,uint32_t mask)
+{
+    const int64_t until=esp_timer_get_time()+(int64_t)VIC_VALUE_WAIT_MS*1000;
+    while(esp_timer_get_time()<until) {
+        if(!maintain_session()) return false;
+        portENTER_CRITICAL(&notification_lock);
+        const bool ready=what==0?context.load_value_available:
+            what==1?(context.devices&mask)==mask:(context.subscribed&mask)==mask;
+        portEXIT_CRITICAL(&notification_lock);
+        if(ready) return true;
+        (void)take_before_attempt_deadline(context.value_done,50);
+    }
+    return diagnostic_status(BLE_HS_ETIMEOUT);
+}
+static bool subscribe_instance(uint8_t instance)
+{
+    diagnostic_stage(BLE_STAGE_SUBSCRIBE);
+    const uint8_t subscribe[]={3,instance};
+    portENTER_CRITICAL(&notification_lock);
+    context.subscribe_target=instance;
+    portEXIT_CRITICAL(&notification_lock);
+    const bool ok=protocol_write(context.last_data.val_handle,subscribe,sizeof(subscribe)) && wait_session(2,1u<<instance);
+    portENTER_CRITICAL(&notification_lock);
+    context.subscribe_target=255;
+    portEXIT_CRITICAL(&notification_lock);
+    return ok;
+}
+/* Read limits before enabling notifications. A peripheral may grant its first
+ * TX credit as soon as the Control CCCD is enabled; never reset that grant.
+ */
+static bool read_protocol_info(void)
+{
+    diagnostic_stage(BLE_STAGE_CONTROL_INFO);
+    drain(context.gatt_done);context.gatt_status=BLE_HS_EUNKNOWN;
+    if(!diagnostic_status(ble_gattc_read(context.connection_handle,context.control.val_handle,generic_read_complete,NULL)) || !wait_gatt()) return false;
+    portENTER_CRITICAL(&notification_lock);
+    const bool info_ok=victron_flow_init(&context.flow,context.read_value,context.read_length);
+    portEXIT_CRITICAL(&notification_lock);
+    return info_ok || diagnostic_status(BLE_HS_EBADDATA);
+}
+static bool open_protocol(bool mppt)
+{
+    diagnostic_stage(BLE_STAGE_TRANSPORT_INIT);
+    const uint8_t init1[]={0xfa,0x80,0xff},init2[]={0xf9,0x80},devices[]={1};
+    if(!protocol_write(context.control.val_handle,init1,sizeof(init1)) ||
+       !protocol_write(context.control.val_handle,init2,sizeof(init2))) return false;
+    diagnostic_stage(BLE_STAGE_DEVICES);
+    if(!protocol_write(context.last_data.val_handle,devices,sizeof(devices)) ||
+       !wait_session(1,(1u<<context.instance)|1u) || !subscribe_instance(0)) return false;
+    if(mppt) {
+        if(context.instance && !subscribe_instance(context.instance)) return false;
+        context.next_keepalive_us=1; // Existing Victron session keepalive, not a saved setting.
+        if(!maintain_session()) return false;
+    }
+    return true;
 }
 static bool request_register(uint16_t reg,uint8_t *value,size_t size)
 {
     const uint8_t get_frame[]={0x05,context.instance,0x81,0x19,(uint8_t)(reg>>8),(uint8_t)reg};
     drain(context.value_done);
     portENTER_CRITICAL(&notification_lock);
-    context.awaited_register=reg;context.load_value_available=false;context.register_length=0;
+    context.awaited_register=reg;context.load_value_available=false;context.register_length=0;context.response_rejected=false;
     portEXIT_CRITICAL(&notification_lock);
-    if(!protocol_write(context.last_data.val_handle,get_frame,sizeof(get_frame)) ||
-       !take_before_attempt_deadline(context.value_done,VIC_VALUE_WAIT_MS)) return false;
+    const bool replied=protocol_write(context.last_data.val_handle,get_frame,sizeof(get_frame)) && wait_session(0,0);
     portENTER_CRITICAL(&notification_lock);
-    bool available=context.load_value_available && context.register_length==size;
+    bool available=replied && context.load_value_available && context.register_length==size;
     if(available) memcpy(value,context.register_value,size);
     context.awaited_register=0;
     portEXIT_CRITICAL(&notification_lock);
@@ -750,15 +927,9 @@ static bool request_load_value(uint8_t *value)
 static victron_result_code_t run_batteryprotect(const victron_request_t *request,victron_result_t *result)
 {
     /* Dedicated, deliberately narrow driver. Never send MPPT EDAB/0093 writes. */
-    drain(context.gatt_done);context.gatt_status=BLE_HS_EUNKNOWN;
-    if(ble_gattc_read(context.connection_handle,context.control.val_handle,generic_read_complete,NULL) ||
-       !wait_gatt() || !context.read_length) return VICTRON_RESULT_SECURITY_FAILED;
-    const uint8_t init1[]={0xfa,0x80,0xff}, init2[]={0xf9,0x80}, devices[]={1}, subscribe[]={3,0};
-    if(!protocol_write(context.control.val_handle,init1,sizeof(init1)) || !delay_before_attempt_deadline(200) ||
-       !protocol_write(context.control.val_handle,init2,sizeof(init2)) || !delay_before_attempt_deadline(200) ||
-       !protocol_write(context.last_data.val_handle,devices,sizeof(devices)) || !delay_before_attempt_deadline(300) ||
-       !protocol_write(context.last_data.val_handle,subscribe,sizeof(subscribe)) || !delay_before_attempt_deadline(300))
+    if(!open_protocol(false))
         return VICTRON_RESULT_INITIAL_READ_FAILED;
+    diagnostic_stage(BLE_STAGE_INITIAL_READ);
     uint8_t product[4],mode=255,output=255;
     /* Only A3B1 was physically verified. Refuse other products rather than
        silently applying a family-wide register assumption. */
@@ -767,11 +938,13 @@ static victron_result_code_t run_batteryprotect(const victron_request_t *request
        !request_register(0xeda8,&output,1)) return VICTRON_RESULT_INITIAL_READ_FAILED;
     result->initial_value=mode;result->load_value=output;
     if(mode!=request->desired_value) {
+        diagnostic_stage(BLE_STAGE_WRITE);
         const uint8_t frame[]={6,0,0x82,0x19,2,0,0x41,request->desired_value};
         if(!protocol_write(context.last_data.val_handle,frame,sizeof(frame))) return VICTRON_RESULT_WRITE_FAILED;
         result->changed=true;
         if(!delay_before_attempt_deadline(300)) return VICTRON_RESULT_VERIFY_FAILED;
     }
+    diagnostic_stage(BLE_STAGE_READBACK);
     if(!request_register(0x0200,&mode,1)) return VICTRON_RESULT_VERIFY_FAILED;
     result->verified_value=mode;
     if(mode!=request->desired_value) return VICTRON_RESULT_VERIFY_FAILED;
@@ -779,6 +952,7 @@ static victron_result_code_t run_batteryprotect(const victron_request_t *request
     /* Re-enable can be delayed by the device. Do not disable protections or
        mistake transient state 3 for ON. Bound the wait and retain readback. */
     for(unsigned i=0;i<30;++i) {
+        diagnostic_stage(BLE_STAGE_OUTPUT);
         if(!request_register(0xeda8,&output,1)) return VICTRON_RESULT_VERIFY_FAILED;
         result->load_value=output;
         if(output==expected_output) {result->verified=true;return VICTRON_RESULT_OK;}
@@ -807,6 +981,7 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
     context.attempt_deadline_us = esp_timer_get_time() +
                                   (int64_t)VIC_ATTEMPT_DEADLINE_MS * 1000;
     context.target_seen = false;
+    diagnostic_stage(BLE_STAGE_SCAN);
     context.peer_address.type = request->address_type >= 0
                                     ? (uint8_t)request->address_type
                                     : BLE_ADDR_PUBLIC;
@@ -826,7 +1001,7 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
                               &scan_parameters,
                               gap_event,
                               NULL);
-    if (status != 0 ||
+    if (!diagnostic_status(status) ||
         !take_before_attempt_deadline(context.scan_done, VIC_SCAN_MS + 1000u) ||
         context.stack_reset) {
         (void)ble_gap_disc_cancel();
@@ -838,6 +1013,7 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
         return VICTRON_RESULT_TARGET_NOT_FOUND;
     }
 
+    diagnostic_stage(BLE_STAGE_CONNECT);
     context.connect_status = BLE_HS_EUNKNOWN;
     drain(context.connect_done);
     status = ble_gap_connect(context.own_address_type,
@@ -846,9 +1022,9 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
                              NULL,
                              gap_event,
                              NULL);
-    if (status != 0 ||
+    if (!diagnostic_status(status) ||
         !take_before_attempt_deadline(context.connect_done, VIC_CONNECT_MS + 1000u) ||
-        context.connect_status != 0 || !context.connected || context.stack_reset) {
+        !diagnostic_status(context.connect_status) || !context.connected || context.stack_reset) {
         if (!context.connected) {
             (void)ble_gap_conn_cancel();
             (void)xSemaphoreTake(context.connect_done, pdMS_TO_TICKS(1000));
@@ -860,15 +1036,35 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
     result->target_seen = true;
 
     if (request->pairing) {
+        diagnostic_stage(BLE_STAGE_SECURITY);
         context.security_status = BLE_HS_EUNKNOWN;
         drain(context.security_done);
-        status = ble_gap_security_initiate(context.connection_handle);
-        if (status != 0 ||
-            !take_before_attempt_deadline(context.security_done, VIC_SECURITY_WAIT_MS) ||
-            context.security_status != 0 || !context.connected || context.stack_reset) {
+        if (!connection_authenticated()) {
+            status = ble_gap_security_initiate(context.connection_handle);
+            if (status != 0 && status != BLE_HS_EALREADY) {
+                diagnostic_status(status);
+                disconnect_if_needed();
+                return VICTRON_RESULT_SECURITY_FAILED;
+            }
+            if (!connection_authenticated() &&
+                !take_before_attempt_deadline(context.security_done, VIC_SECURITY_WAIT_MS)) {
+                diagnostic_status(BLE_HS_ETIMEOUT);
+                disconnect_if_needed();
+                return VICTRON_RESULT_SECURITY_FAILED;
+            }
+        }
+        if (!connection_authenticated() || context.stack_reset) {
+            diagnostic_status(context.security_status ? context.security_status : BLE_HS_EAUTHEN);
             disconnect_if_needed();
             return VICTRON_RESULT_SECURITY_FAILED;
         }
+    }
+
+    /* Match the successful Windows session's 74-byte notification payload.
+     * Requests still fit MTU23; peers negotiating23 remain supported. */
+    if (!request->generic_kind && !negotiate_mtu()) {
+        disconnect_if_needed();
+        return VICTRON_RESULT_GATT_NOT_FOUND;
     }
 
     if (!discover_service_and_characteristics()) {
@@ -877,11 +1073,13 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
     }
 
     if(request->generic_kind) {
+        diagnostic_stage(BLE_STAGE_WRITE);
         if(!write_attribute(context.control.val_handle,request->value,request->value_length)) {
             disconnect_if_needed();return VICTRON_RESULT_WRITE_FAILED;
         }
         result->changed=true;
         if(request->generic_kind==4) {
+            diagnostic_stage(BLE_STAGE_READBACK);
             drain(context.gatt_done);context.gatt_status=BLE_HS_EUNKNOWN;
             const int status=ble_gattc_read(context.connection_handle,context.control.val_handle,generic_read_complete,NULL);
             result->verified=status==0 && wait_gatt() && context.read_length==request->value_length &&
@@ -890,6 +1088,11 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
         }
         disconnect_if_needed();return VICTRON_RESULT_OK;
     }
+    if (!read_protocol_info()) {
+        disconnect_if_needed();
+        return VICTRON_RESULT_INITIAL_READ_FAILED;
+    }
+    diagnostic_stage(BLE_STAGE_NOTIFICATIONS);
     const uint8_t notify_enable[] = {0x01, 0x00};
     if (!write_attribute(context.control.cccd_handle, notify_enable, sizeof(notify_enable)) ||
         !write_attribute(context.last_data.cccd_handle, notify_enable, sizeof(notify_enable)) ||
@@ -902,36 +1105,10 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
         disconnect_if_needed();return code;
     }
 
-    const uint8_t control_init_1[] = {0xFA, 0x80, 0xFF};
-    const uint8_t control_init_2[] = {0xF9, 0x80};
-    const uint8_t session_1[] = {0x01};
-    const uint8_t session_2[] = {0x03, 0x00};
-    const uint8_t session_3[] = {
-        0x06, 0x00, 0x82, 0x18, 0x93, 0x42, 0x10, 0x27,
-        0x05, 0x00, 0x82, 0x19, 0xEC, 0x66, 0x19, 0xEC, 0x65,
-        0x03, 0x01, 0x03, 0x03
-    };
-
-    bool session_ok = write_attribute(context.control.val_handle,
-                                      control_init_1,
-                                      sizeof(control_init_1));
-    session_ok = session_ok && write_attribute(context.control.val_handle,
-                                               control_init_2,
-                                               sizeof(control_init_2));
-    session_ok = session_ok && write_attribute(context.last_data.val_handle,
-                                               session_1,
-                                               sizeof(session_1));
-    session_ok = session_ok && delay_before_attempt_deadline(200);
-    session_ok = session_ok && write_attribute(context.last_data.val_handle,
-                                               session_2,
-                                               sizeof(session_2));
-    session_ok = session_ok && delay_before_attempt_deadline(200);
-    session_ok = session_ok && write_attribute(context.last_data.val_handle,
-                                               session_3,
-                                               sizeof(session_3));
-    session_ok = session_ok && delay_before_attempt_deadline(700);
+    const bool session_ok=open_protocol(true);
 
     uint8_t current_value = VICTRON_VALUE_UNKNOWN;
+    if (session_ok) diagnostic_stage(BLE_STAGE_INITIAL_READ);
     if (!session_ok || !request_load_value(&current_value)) {
         disconnect_if_needed();
         return VICTRON_RESULT_INITIAL_READ_FAILED;
@@ -941,11 +1118,12 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
 
     const uint8_t target_value = smartMpptControl(current_value, request->desired_value);
     if (current_value != target_value) {
+        diagnostic_stage(BLE_STAGE_WRITE);
         const uint8_t set_frame[] = {
             0x06, context.instance, 0x82, 0x19,
             0xED, 0xAB, 0x41, target_value
         };
-        if (!write_attribute(context.last_data.val_handle,
+        if (!protocol_write(context.last_data.val_handle,
                              set_frame,
                              sizeof(set_frame))) {
             disconnect_if_needed();
@@ -959,12 +1137,30 @@ static victron_result_code_t run_attempt(const victron_request_t *request,
     }
 
     uint8_t verified_value = VICTRON_VALUE_UNKNOWN;
+    diagnostic_stage(BLE_STAGE_READBACK);
     const bool read_back = request_load_value(&verified_value);
     if (read_back) {
         result->verified_value = verified_value;
         result->load_value = verified_value;
     }
     result->verified = read_back && verified_value == target_value;
+    if(result->verified) {
+        /* Keep load_value as EDAB for existing STM/UI/LoRa payload consumers.
+         * Success for forced ON/OFF additionally requires actual output EDA8.
+         * Automatic modes select an algorithm; their instantaneous state may
+         * legitimately be either ON or OFF. Never override protections.
+         */
+        const int expected=victron_mppt_expected_output(target_value);
+        uint8_t output=255; bool output_ok=false;
+        const int64_t until=esp_timer_get_time()+10000000;
+        do {
+            diagnostic_stage(BLE_STAGE_OUTPUT);
+            if(!request_register(0xeda8,&output,1)) break;
+            output_ok=output<=1 && (expected<0 || output==(uint8_t)expected);
+            if(output_ok || !delay_before_attempt_deadline(200)) break;
+        } while(esp_timer_get_time()<until);
+        result->verified=output_ok;
+    }
     disconnect_if_needed();
     return result->verified ? VICTRON_RESULT_OK : VICTRON_RESULT_VERIFY_FAILED;
 }
@@ -980,11 +1176,13 @@ esp_err_t victron_ble_run(const victron_request_t *request,
     result->verified_value = VICTRON_VALUE_UNKNOWN;
     result->load_value = VICTRON_VALUE_UNKNOWN;
     result->code = VICTRON_RESULT_BAD_SETTINGS;
+    result->instance = request != NULL && request->instance <= 23 ? request->instance : 255;
     if (!victron_ble_request_valid(request)) {
         return ESP_ERR_INVALID_ARG;
     }
     /* A valid request has made its first BLE attempt once stack setup starts. */
     result->attempts = 1;
+    result->stage = BLE_STAGE_STACK;
 
     memset(&context, 0, sizeof(context));
     context.connection_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -1003,7 +1201,20 @@ esp_err_t victron_ble_run(const victron_request_t *request,
     esp_err_t stack_status = nimble_port_init();
     if (stack_status != ESP_OK) {
         require_stack_restart(result);
+        result->stage = BLE_STAGE_STACK;
+        result->detail = (int16_t)stack_status;
         return stack_status;
+    }
+
+    if (ble_att_set_preferred_mtu(77) != 0) {
+        result->code = VICTRON_RESULT_STACK_ERROR;
+        if (nimble_port_deinit() != ESP_OK) {
+            require_stack_restart(result);
+            return ESP_FAIL;
+        }
+        delete_semaphores();
+        memset(&context, 0, sizeof(context));
+        return ESP_FAIL;
     }
 
     ble_hs_cfg.reset_cb = host_reset;
@@ -1052,6 +1263,8 @@ esp_err_t victron_ble_run(const victron_request_t *request,
         result->changed = false;
         result->verified = false;
         result->code = run_attempt(request, result);
+        result->stage = context.stage;
+        result->detail = context.detail;
         changed_any = changed_any || result->changed;
         if (result->load_value != VICTRON_VALUE_UNKNOWN) {
             last_known_load_value = result->load_value;

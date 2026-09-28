@@ -10,12 +10,24 @@ het modem; wacht op de uitvoeringsstatus en vervolgens op zijn netwerkverbinding
 Downlink `02` schakelt het weer uit. Maak geen lus waarbij de enige LoRa-gateway
 internet nodig heeft via precies het modem dat je uitschakelt.
 
+Wil je de webinterface via dat modem gebruiken? Zet WiFi op **Eigen router + AP-terugval**,
+vul zijn WiFi-gegevens in en kies bijvoorbeeld **90 s Opstarttijd router**. Schakel
+**WiFi openen na toegestane LoRa-opdracht** in. Het board wacht, vraagt een DHCP-adres
+aan en wordt daarop bereikbaar. Lukt verbinden/DHCP niet binnen het ingestelde venster,
+dan verschijnt zijn eigen WiFi op **192.168.4.1**. Na routerherstel verdwijnt dat AP weer.
+
 **EN.** Power the node independently through a fuse. Put the modem behind a
 suitable BatteryProtect or MPPT LOAD output. Functions 1/2 are modem ON/OFF;
 permit both in LoRa settings and use Class C at both ends. Send hex `01`, wait
 for verified action status and then the modem's own connection. Send `02` to
 turn it off. Never depend on that same switched modem for your only gateway's
 backhaul.
+
+To reach the web interface through that modem, select **Own router + AP fallback**,
+enter its WiFi credentials and allow, for example, **90 s Router startup time**.
+Enable **Open WiFi after allowed LoRa command**. The board waits, then obtains a
+DHCP address. If connection/DHCP fails within the attempt window, its own WiFi
+appears at **192.168.4.1**; successful router recovery retires the AP.
 
 ## 2. Lokale spanning als eerste trigger / Local voltage trigger
 
@@ -26,11 +38,24 @@ Laat WiFi één uur na een flank beschikbaar, of houd het aan zolang het signaal
 actief is. De ingang detecteert spanning; hij bewijst niet dat een dynamo draait
 en is geen voltmeter. Geen directe aansluiting op onbekende automotive pieken.
 
+Voor minder gevoelig schakelen: stel **Minimale AAN-tijd** in op 5 s en
+**Actievertraging** op 10 s. De AAN-actie volgt na 15 s onafgebroken spanning;
+valt het signaal eerder weg, dan vervalt die actie. Voor uitschakelen kun je
+apart een **Minimale UIT-tijd** en actievertraging kiezen. Beide tijden 0 betekent
+direct na de vaste contactontdendering. De handmatige flankknoppen slaan deze
+fysieke wachttijden over.
+
 **EN.** Use a suitable 12–24V DC signal on RAK13001's isolated input. Rising:
 modem ON plus send status. Falling: optionally modem OFF plus status. Configure
 WiFi hold time after an edge or while active. This detects voltage presence,
 not engine operation or battery voltage. Do not feed unknown automotive
 transients directly into the input.
+
+For less sensitive switching, set **Minimum ON time** to 5 s and **Action delay**
+to 10 s: the ON action follows 15 s of continuous voltage. An earlier opposite
+level cancels it. Configure **Minimum OFF time** and its delay independently.
+Both values 0 mean immediate after fixed input debounce. Manual edge buttons
+skip these physical-input waiting times.
 
 ## 3. Droog contact / Dry contact
 

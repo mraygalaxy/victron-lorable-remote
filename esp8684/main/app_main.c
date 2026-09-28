@@ -31,6 +31,8 @@ typedef struct {
     int64_t portal_deadline_us;
     char portal_ssid[33];
     char portal_password[64];
+    portal_wifi_config_t wifi;
+    uint16_t wifi_config_id;
     bool contact_active;
     portal_mode_t mode;
 
@@ -188,7 +190,9 @@ static void send_portal_state(bool running, const char *reason)
     char payload[160] = {0};
     protocol_form_append(payload, sizeof(payload), "running", running ? "1" : "0");
     if (running) {
-        protocol_form_append(payload, sizeof(payload), "ip", "192.168.4.1");
+        portal_wifi_status_t status;portal_wifi_status(&status);
+        protocol_form_append(payload, sizeof(payload), "ip",
+            status.connected ? status.ip : status.ap ? status.ap_ip : "127.0.0.1");
     }
     protocol_form_append(payload, sizeof(payload), "reason", reason);
     uart_link_send("PORTAL_STATE", 0, payload);
@@ -377,6 +381,14 @@ static esp_err_t build_victron_result_payload(const victron_result_t *result,
                                                         result->verified ? "1" : "0");
     if (status == ESP_OK) status = append_u32(payload, payload_size,
                                               "advertisements", result->advertisements);
+    if (status == ESP_OK) status = append_u32(payload, payload_size, "stage", result->stage);
+    if (status == ESP_OK && result->stage && result->instance <= 23)
+        status = append_u32(payload, payload_size, "instance", result->instance);
+    if (status == ESP_OK) {
+        char detail[8];
+        snprintf(detail, sizeof(detail), "%d", (int)result->detail);
+        status = protocol_form_append(payload, payload_size, "detail", detail);
+    }
     return status;
 }
 
@@ -428,6 +440,11 @@ static bool get_required_u32(const protocol_frame_t *frame,
 static void handle_portal_start(const protocol_frame_t *frame)
 {
     uint32_t seconds = 0;
+    uint32_t wifi_config_id=0;
+    char wifi_config_text[8]={0};
+    const esp_err_t wifi_config_result=protocol_form_get(frame->payload,"wifi_cfg",wifi_config_text,sizeof(wifi_config_text));
+    const bool wifi_config_ok=wifi_config_result==ESP_ERR_NOT_FOUND ||
+        (wifi_config_result==ESP_OK && parse_u32(wifi_config_text,1,UINT16_MAX,&wifi_config_id));
     char password[64] = {0};
     char ssid[33] = {0};
     const bool seconds_ok = get_required_u32(frame, "seconds", 60, 86400, &seconds);
@@ -443,7 +460,7 @@ static void handle_portal_start(const protocol_frame_t *frame)
     }
     const bool ssid_ok = ssid_result == ESP_OK && valid_ssid(ssid);
 
-    if (!seconds_ok || !password_ok || !ssid_ok || frame->id == 0) {
+    if (!seconds_ok || !password_ok || !ssid_ok || !wifi_config_ok || frame->id == 0) {
         send_result(frame->id, false, "bad_portal_start");
         protocol_secure_zero(password, sizeof(password));
         protocol_secure_zero(ssid, sizeof(ssid));
@@ -454,6 +471,16 @@ static void handle_portal_start(const protocol_frame_t *frame)
         send_result(frame->id, false, "busy");
         protocol_secure_zero(password, sizeof(password));
         protocol_secure_zero(ssid, sizeof(ssid));
+        return;
+    }
+    /* New hosts pair the two frames. A dropped/invalid WIFI_CONFIG must never
+       turn an intended USB-only/off session into the boot-default AP mode.
+       Legacy hosts omit this reference and retain their AP-only behavior. */
+    if(wifi_config_id && application_state.wifi_config_id!=wifi_config_id) {
+        xSemaphoreGive(state_lock);
+        send_result(frame->id,false,"wifi_config_needed");
+        protocol_secure_zero(password,sizeof(password));
+        protocol_secure_zero(ssid,sizeof(ssid));
         return;
     }
     const bool credentials_changed =
@@ -471,6 +498,32 @@ static void handle_portal_start(const protocol_frame_t *frame)
     protocol_secure_zero(ssid, sizeof(ssid));
     send_result(frame->id, true, "accepted");
     xTaskNotifyGive(manager_task);
+}
+
+static void handle_wifi_config(const protocol_frame_t *frame)
+{
+    portal_wifi_config_t wifi={0};uint32_t mode=0,delay=0,timeout=0;
+    bool valid=frame->id && get_required_u32(frame,"mode",0,2,&mode) &&
+        get_required_u32(frame,"delay",0,600,&delay) &&
+        get_required_u32(frame,"timeout",10,300,&timeout) &&
+        protocol_form_get(frame->payload,"ssid",wifi.ssid,sizeof(wifi.ssid))==ESP_OK &&
+        protocol_form_get(frame->payload,"password",wifi.password,sizeof(wifi.password))==ESP_OK;
+    wifi.mode=mode;wifi.delay_s=delay;wifi.timeout_s=timeout;
+    if(wifi.ssid[0] && !valid_ssid(wifi.ssid))valid=false;
+    size_t length=strlen(wifi.password);
+    if((length && (length<8 || length>63)) || (mode==WIFI_CLIENT_ROUTER && (!wifi.ssid[0] || length<8)))valid=false;
+    for(size_t i=0;i<length;++i)if((unsigned char)wifi.password[i]<32 || (unsigned char)wifi.password[i]>126)valid=false;
+    if(!valid)send_result(frame->id,false,"bad_wifi_config");
+    else if(xSemaphoreTake(state_lock,pdMS_TO_TICKS(250))!=pdTRUE)send_result(frame->id,false,"busy");
+    else {
+        const bool changed=memcmp(&application_state.wifi,&wifi,sizeof(wifi))!=0;
+        application_state.wifi=wifi;
+        application_state.wifi_config_id=frame->id;
+        if(changed && application_state.portal_requested)application_state.portal_restart=true;
+        xSemaphoreGive(state_lock);
+        send_result(frame->id,true,"wifi_configured");xTaskNotifyGive(manager_task);
+    }
+    protocol_secure_zero(&wifi,sizeof(wifi));
 }
 
 static void handle_portal_stop(const protocol_frame_t *frame)
@@ -794,6 +847,8 @@ static void receive_uart_frame(const protocol_frame_t *frame)
         handle_hello(frame);
     } else if (strcmp(frame->type, "PORTAL_START") == 0) {
         handle_portal_start(frame);
+    } else if (strcmp(frame->type, "WIFI_CONFIG") == 0) {
+        handle_wifi_config(frame);
     } else if (strcmp(frame->type, "PORTAL_STOP") == 0) {
         handle_portal_stop(frame);
     } else if (strcmp(frame->type, "CONTACT") == 0) {
@@ -842,6 +897,7 @@ static void manager_start_portal(void)
 {
     char ssid[33] = {0};
     char password[64] = {0};
+    portal_wifi_config_t wifi={0};
     bool should_start = false;
 
     if (xSemaphoreTake(state_lock, pdMS_TO_TICKS(250)) == pdTRUE) {
@@ -851,6 +907,7 @@ static void manager_start_portal(void)
         if (should_start) {
             memcpy(ssid, application_state.portal_ssid, sizeof(ssid));
             memcpy(password, application_state.portal_password, sizeof(password));
+            wifi=application_state.wifi;
         }
         application_state.portal_restart = false;
         xSemaphoreGive(state_lock);
@@ -863,9 +920,11 @@ static void manager_start_portal(void)
     bool restart_required = false;
     const esp_err_t result = portal_start(ssid,
                                           password,
+                                          &wifi,
                                           &portal_callbacks,
                                           &restart_required);
     protocol_secure_zero(password, sizeof(password));
+    protocol_secure_zero(&wifi,sizeof(wifi));
     protocol_secure_zero(ssid, sizeof(ssid));
 
     if (xSemaphoreTake(state_lock, pdMS_TO_TICKS(250)) == pdTRUE) {
@@ -1088,6 +1147,7 @@ static void manager_task_main(void *argument)
         } else if (!portal_running()) {
             manager_start_portal();
         }
+        if(portal_running())portal_wifi_tick();
     }
 }
 
@@ -1108,6 +1168,8 @@ void app_main(void)
         return;
     }
     app_model_snapshot_defaults(&application_state.config);
+    application_state.wifi.delay_s=90;
+    application_state.wifi.timeout_s=60;
     application_state.mode = PORTAL_MODE_IDLE;
     application_state.last_ble_result.status = ESP_ERR_INVALID_STATE;
 

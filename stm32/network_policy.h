@@ -46,7 +46,13 @@ public:
         if(p[slot].kind==1&&attempted[slot]&&now-lastAttemptAt[slot]<3600UL){state=BUDGET_WAIT;nextAt=lastAttemptAt[slot]+3600UL;return false;}
         state=WAITING;return true;
     }
-    void started(uint32_t now) {state=JOINING;nextAt=now+120;attempted[slot]=true;lastAttemptAt[slot]=now; if(joinsToday[slot]<255)++joinsToday[slot];}
+    void started(uint32_t now) {
+        // An explicit test-variant manual attempt can skip ready(), but still
+        // belongs to the same daily accounting window as automatic joins.
+        if(!budgetStarted[slot]||now-budgetAt[slot]>=86400UL){budgetStarted[slot]=true;budgetAt[slot]=now;joinsToday[slot]=0;}
+        state=JOINING;nextAt=now+120;attempted[slot]=true;lastAttemptAt[slot]=now;
+        if(joinsToday[slot]<255)++joinsToday[slot];
+    }
     void deferred(uint32_t now){state=WAITING;nextAt=now+60;}
     void joined(uint32_t now) {state=ONLINE;healthyAt=now;failures=0;probing=false;}
     void failed(const NetworkProfile *p,const uint8_t *order,uint32_t now) {

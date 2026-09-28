@@ -17,7 +17,7 @@ static const uint32_t CONFIG_SLOT_B_OFFSET = 0x6000;
 static const uint32_t CONFIG_MAGIC = 0x34474643UL; // "CFG4" little endian
 static const uint16_t LEGACY_FORMAT_VERSION_V1 = 1;
 static const uint16_t LEGACY_FORMAT_VERSION_V2 = 2;
-static const uint16_t CONFIG_FORMAT_VERSION = 8;
+static const uint16_t CONFIG_FORMAT_VERSION = 9;
 static const uint16_t V4_RUNTIME_CONFIG_WIRE_SIZE = 147;
 static const uint16_t V3_RUNTIME_CONFIG_WIRE_SIZE = 133;
 static const uint16_t LEGACY_RUNTIME_CONFIG_WIRE_SIZE = 100;
@@ -228,127 +228,29 @@ static bool decodePending(const uint8_t *payload, size_t payloadLength,
 
 static bool readSlot(uint32_t offset, SlotData &slot)
 {
-    secureZero(&slot, sizeof(slot));
-    StoredHeader header;
-    memset(&header, 0, sizeof(header));
-    if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&header),
-                              sizeof(header)) ||
-        header.magic != CONFIG_MAGIC)
-    {
-        return false;
-    }
-
-    if (header.formatVersion == LEGACY_FORMAT_VERSION_V1 &&
-        header.payloadLength == LEGACY_RUNTIME_CONFIG_WIRE_SIZE)
-    {
-        StoredConfigV1 record;
-        memset(&record, 0, sizeof(record));
-        if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&record),
-                                  sizeof(record)))
-            return false;
-        const uint32_t expected = crc32(reinterpret_cast<const uint8_t *>(&record),
-                                        sizeof(record) - sizeof(record.crc));
-        const bool valid = record.crc == expected &&
-            runtimeConfigDecode(record.payload, sizeof(record.payload), slot.config);
-        if (valid)
-        {
-            slot.generation = record.header.generation;
-            clearPending(slot.pending);
-        }
-        secureZero(&record, sizeof(record));
-        return valid;
-    }
-
-    if (header.formatVersion == LEGACY_FORMAT_VERSION_V2 &&
-        header.payloadLength == LEGACY_RECORD_PAYLOAD_SIZE)
-    {
-        StoredConfigV2 record;
-        memset(&record, 0, sizeof(record));
-        if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&record),
-                                  sizeof(record)))
-            return false;
-        const uint32_t expected = crc32(reinterpret_cast<const uint8_t *>(&record),
-                                        sizeof(record) - sizeof(record.crc));
-        const bool valid = record.crc == expected &&
-            runtimeConfigDecode(record.payload, LEGACY_RUNTIME_CONFIG_WIRE_SIZE,
-                                slot.config) &&
-            decodePending(record.payload, sizeof(record.payload),
-                          LEGACY_PENDING_OFFSET, slot.pending);
-        if (valid) slot.generation = record.header.generation;
-        secureZero(&record, sizeof(record));
-        return valid;
-    }
-
-    if (header.formatVersion == 3 && header.payloadLength == 168)
-    {
-        StoredConfigV3 oldRecord;
-        if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&oldRecord), sizeof(oldRecord))) return false;
-        const bool valid = oldRecord.crc == crc32(reinterpret_cast<const uint8_t *>(&oldRecord), sizeof(oldRecord)-4) &&
-            runtimeConfigDecode(oldRecord.payload, V3_RUNTIME_CONFIG_WIRE_SIZE, slot.config) &&
-            decodePending(oldRecord.payload, sizeof(oldRecord.payload), V3_RUNTIME_CONFIG_WIRE_SIZE, slot.pending);
-        if (valid) slot.generation = oldRecord.header.generation;
-        secureZero(&oldRecord, sizeof(oldRecord));
-        return valid;
-    }
-    if (header.formatVersion == 4 && header.payloadLength == 184)
-    {
-        StoredConfigV4 oldRecord;
-        if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&oldRecord), sizeof(oldRecord))) return false;
-        const bool valid = oldRecord.crc == crc32(reinterpret_cast<const uint8_t *>(&oldRecord), sizeof(oldRecord)-4) &&
-            runtimeConfigDecode(oldRecord.payload, V4_RUNTIME_CONFIG_WIRE_SIZE, slot.config) &&
-            decodePending(oldRecord.payload, sizeof(oldRecord.payload), V4_RUNTIME_CONFIG_WIRE_SIZE, slot.pending);
-        if (valid) slot.generation = oldRecord.header.generation;
-        secureZero(&oldRecord, sizeof(oldRecord));
-        return valid;
-    }
-    if (header.formatVersion == 5 && header.payloadLength == 188) {
-        StoredConfigV5 old;
-        if (!api.system.flash.get(offset, (uint8_t *)&old, sizeof(old))) return false;
-        const bool valid = old.crc == crc32((const uint8_t *)&old, sizeof(old)-4) &&
-            runtimeConfigDecode(old.payload, 155, slot.config) &&
-            decodePending(old.payload, sizeof(old.payload), 155, slot.pending);
-        if (valid) slot.generation = old.header.generation;
-        secureZero(&old,sizeof(old));
-        return valid;
-    }
-    if (header.formatVersion == 6 && header.payloadLength == 532) {
-        StoredConfigV6 old;
-        if (!api.system.flash.get(offset,(uint8_t *)&old,sizeof(old))) return false;
-        const bool valid=old.crc==crc32((const uint8_t *)&old,sizeof(old)-4) &&
-            runtimeConfigDecode(old.payload,496,slot.config) &&
-            decodePending(old.payload,sizeof(old.payload),496,slot.pending);
-        if(valid)slot.generation=old.header.generation;
-        secureZero(&old,sizeof(old));return valid;
-    }
-    if (header.formatVersion == 7 && header.payloadLength == 997) {
-        StoredConfigV7 old;
-        if (!api.system.flash.get(offset,(uint8_t *)&old,sizeof(old))) return false;
-        const bool valid=old.crc==crc32((const uint8_t *)&old,sizeof(old)-4) &&
-            runtimeConfigDecode(old.payload,961,slot.config) &&
-            decodePending(old.payload,sizeof(old.payload),961,slot.pending);
-        if(valid)slot.generation=old.header.generation;
-        secureZero(&old,sizeof(old));return valid;
-    }
-    if (header.formatVersion != CONFIG_FORMAT_VERSION ||
-        header.payloadLength != RECORD_PAYLOAD_SIZE)
-    {
-        return false;
-    }
-
-    StoredConfigV8 record;
-    memset(&record, 0, sizeof(record));
-    if (!api.system.flash.get(offset, reinterpret_cast<uint8_t *>(&record),
-                              sizeof(record)))
-        return false;
-    const uint32_t expected = crc32(reinterpret_cast<const uint8_t *>(&record),
-                                    sizeof(record) - sizeof(record.crc));
-    const bool valid = record.crc == expected &&
-        runtimeConfigDecode(record.payload, RUNTIME_CONFIG_WIRE_SIZE,
-                            slot.config) &&
-        decodePending(record.payload, sizeof(record.payload),
-                      PENDING_OFFSET, slot.pending);
-    if (valid) slot.generation = record.header.generation;
-    secureZero(&record, sizeof(record));
+    secureZero(&slot,sizeof(slot));
+    StoredConfigV8 record={};
+    StoredHeader &header=record.header;
+    if(!api.system.flash.get(offset,(uint8_t *)&header,sizeof(header)) ||
+       header.magic!=CONFIG_MAGIC || header.formatVersion<1 ||
+       header.formatVersion>CONFIG_FORMAT_VERSION)return false;
+    // Historical records share the same header and CRC framing. Decode one
+    // bounded record instead of separate stack buffers and readers per version.
+    static const uint16_t configSizes[]={100,100,133,147,155,496,961,1212,RUNTIME_CONFIG_WIRE_SIZE};
+    static const uint16_t payloadSizes[]={100,136,168,184,188,532,997,1248,RECORD_PAYLOAD_SIZE};
+    const unsigned version=header.formatVersion-1;
+    const uint16_t configSize=configSizes[version],payloadSize=payloadSizes[version];
+    if(header.payloadLength!=payloadSize)return false;
+    const size_t crcOffset=sizeof(header)+payloadSize;
+    const size_t recordSize=crcOffset+4;
+    if(recordSize>sizeof(record) ||
+       !api.system.flash.get(offset,(uint8_t *)&record,recordSize))return false;
+    const bool valid=getU32Le((const uint8_t *)&record+crcOffset)==
+        crc32((const uint8_t *)&record,crcOffset) &&
+        runtimeConfigDecode(record.payload,configSize,slot.config) &&
+        (version==0 || decodePending(record.payload,payloadSize,configSize,slot.pending));
+    if(valid)slot.generation=header.generation;
+    secureZero(&record,sizeof(record));
     return valid;
 }
 
@@ -448,6 +350,10 @@ void runtimeConfigDefaults(RuntimeConfig &config)
     config.fallingActions = ACTION_UPLINK;
     config.relayPulseMs = 1000;
     config.networkHealthMinutes=240;
+    config.loraTxDbm=14;
+    config.wifiMode=0;
+    config.wifiStaDelaySeconds=90;
+    config.wifiStaTimeoutSeconds=60;
     for(unsigned i=0;i<MAX_NETWORKS;++i) {
         config.networkOrder[i]=i;
         NetworkProfile &p=config.networks[i];
@@ -458,6 +364,19 @@ void runtimeConfigDefaults(RuntimeConfig &config)
 
 bool runtimeConfigValid(const RuntimeConfig &config)
 {
+    if(config.loraTxDbm>22 || config.wifiMode>2 || config.wifiStaDelaySeconds>600 ||
+       config.wifiStaTimeoutSeconds<10 || config.wifiStaTimeoutSeconds>300)return false;
+    for(unsigned i=0;i<2;++i)
+        if(config.edgeHoldSeconds[i]>3600 || config.edgeDelaySeconds[i]>3600)return false;
+    const size_t staSsidLength=strnlen(config.wifiStaSsid,sizeof(config.wifiStaSsid));
+    const size_t staPasswordLength=strnlen(config.wifiStaPassword,sizeof(config.wifiStaPassword));
+    if(staSsidLength>32 || staPasswordLength>63 ||
+       (staPasswordLength && staPasswordLength<8) ||
+       (config.wifiMode==1 && (!staSsidLength || staPasswordLength<8)))return false;
+    for(size_t i=0;i<staSsidLength;++i)
+        if((uint8_t)config.wifiStaSsid[i]<32 || (uint8_t)config.wifiStaSsid[i]>126)return false;
+    for(size_t i=0;i<staPasswordLength;++i)
+        if((uint8_t)config.wifiStaPassword[i]<32 || (uint8_t)config.wifiStaPassword[i]>126)return false;
     if(config.networksInitialized>1 || (config.networkHealthMinutes &&
        (config.networkHealthMinutes<15 || config.networkHealthMinutes>1440)))return false;
     uint8_t seen=0;
@@ -576,6 +495,11 @@ void runtimeConfigEncode(const RuntimeConfig &config,
     }
     memcpy(output+1205,config.networkOrder,4);output[1209]=config.networksInitialized;
     output[1210]=(uint8_t)config.networkHealthMinutes;output[1211]=(uint8_t)(config.networkHealthMinutes>>8);
+    output[1212]=config.loraTxDbm;output[1213]=config.wifiMode;
+    memcpy(output+1214,config.wifiStaSsid,33);memcpy(output+1247,config.wifiStaPassword,64);
+    const uint16_t timing[]={config.wifiStaDelaySeconds,config.wifiStaTimeoutSeconds,
+        config.edgeHoldSeconds[0],config.edgeHoldSeconds[1],config.edgeDelaySeconds[0],config.edgeDelaySeconds[1]};
+    for(unsigned i=0;i<6;++i){output[1311+i*2]=(uint8_t)timing[i];output[1312+i*2]=(uint8_t)(timing[i]>>8);}
 }
 
 bool runtimeConfigDecode(const uint8_t *input, size_t length,
@@ -585,7 +509,7 @@ bool runtimeConfigDecode(const uint8_t *input, size_t length,
         (length != LEGACY_RUNTIME_CONFIG_WIRE_SIZE &&
          length != V3_RUNTIME_CONFIG_WIRE_SIZE &&
          length != V4_RUNTIME_CONFIG_WIRE_SIZE && length != 155 &&
-         length != 496 && length != 961 && length != RUNTIME_CONFIG_WIRE_SIZE)) return false;
+         length != 496 && length != 961 && length != 1212 && length != RUNTIME_CONFIG_WIRE_SIZE)) return false;
     runtimeConfigDefaults(config);
     memcpy(config.victronMac, &input[0], 17);
     config.victronMac[17] = '\0';
@@ -662,7 +586,7 @@ bool runtimeConfigDecode(const uint8_t *input, size_t length,
         config.fallingFunction=(config.fallingActions&4)?1:(config.fallingActions&8)?2:0;
         config.downlinkFunctions=config.downlinkAllowed&3;
     }
-    if(length==RUNTIME_CONFIG_WIRE_SIZE) {
+    if(length>=1212) {
         for(unsigned i=0;i<MAX_NETWORKS;++i) {
             NetworkProfile &n=config.networks[i];const uint8_t *p=input+961+i*NETWORK_WIRE_SIZE;
             if(p[24])return false;memcpy(n.name,p,25);n.enabled=p[25];n.kind=p[26];
@@ -671,6 +595,13 @@ bool runtimeConfigDecode(const uint8_t *input, size_t length,
         }
         memcpy(config.networkOrder,input+1205,4);config.networksInitialized=input[1209];
         config.networkHealthMinutes=input[1210]|((uint16_t)input[1211]<<8);
+    }
+    if(length==RUNTIME_CONFIG_WIRE_SIZE){
+        config.loraTxDbm=input[1212];config.wifiMode=input[1213];
+        memcpy(config.wifiStaSsid,input+1214,33);memcpy(config.wifiStaPassword,input+1247,64);
+        uint16_t *timing[]={&config.wifiStaDelaySeconds,&config.wifiStaTimeoutSeconds,
+            &config.edgeHoldSeconds[0],&config.edgeHoldSeconds[1],&config.edgeDelaySeconds[0],&config.edgeDelaySeconds[1]};
+        for(unsigned i=0;i<6;++i)*timing[i]=input[1311+i*2]|((uint16_t)input[1312+i*2]<<8);
     }
     return runtimeConfigValid(config);
 }

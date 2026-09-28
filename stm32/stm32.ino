@@ -1,6 +1,6 @@
 /*
  * RAK11160/RAK11162 + RAK13001 -> LoRaWAN, input/relay and SmartSolar LOAD
- * Victron LoRaBLE Remote v4.8, 2026-09-16
+ * Victron LoRaBLE Remote v4.12, 2026-09-29
  *
  * Triggers:
  *   - new active edge on the isolated RAK13001 input (WB_IO3, active LOW)
@@ -18,10 +18,14 @@
  */
 
 #include "settings.h"
+#include "firmware_version.h"
+#include "lora_power.h"
+#include "lora_diagnostics.h"
 #include "config_store.h"
 #include "region_profile.h"
 #include "network_manager.h"
 #include "action_rules.h"
+#include "input_timing.h"
 #include "victron_result_codes.h"
 #include "esp_companion.h"
 #include "esp_migration.h"
@@ -33,7 +37,7 @@
 #include <string.h>
 
 #define FW_MAJOR 4
-#define FW_MINOR 10
+#define FW_MINOR 12
 
 #if LEGACY_BLE_AT != 0 && LEGACY_BLE_AT != 1
 #error "LEGACY_BLE_AT must be 0 or 1"
@@ -65,7 +69,9 @@ static UTIL_TIMER_Object_t relayTimer;
 static volatile uint32_t txCount = 0;
 static volatile uint32_t risingCount = 0, fallingCount = 0;
 static volatile uint32_t inputOverflow = 0;
-static volatile uint8_t edgeQueue[16], edgeWrite = 0, edgeRead = 0;
+static volatile uint32_t edgeVersion=0, edgeChangedAt=0;
+static uint32_t edgeConsumed=0;
+static InputActionTimer inputActionTimer;
 static UTIL_TIMER_Object_t inputTimer;
 static bool inputTimerReady = false;
 static uint8_t lastEvent = 0, lastActions = 0;
@@ -73,6 +79,8 @@ static volatile uint8_t remoteActionQueue[4],remoteFunctionQueue[4];
 static volatile uint8_t remoteWrite = 0, remoteRead = 0;
 static volatile bool statusTxInFlight = false;
 static volatile bool healthTxInFlight = false;
+static bool manualConfirmPending = false;
+LoraDiagnostics loraDiagnostics;
 static volatile bool lastKnownJoined = false;
 static volatile uint32_t statusRevision = 0;
 static volatile uint32_t statusRevisionInFlight = 0;
@@ -134,6 +142,7 @@ static bool configWindowPending(uint32_t now)
 
 static bool wifiWanted(uint32_t now)
 {
+    if(runtimeConfig.wifiMode==2)return false;
     return (runtimeConfig.inputEnabled && (runtimeConfig.wifiTriggers & 2) && stableContact == CONTACT_ACTIVE_LEVEL) || configWindowPending(now);
 }
 
@@ -229,7 +238,7 @@ static void executeInputEdge(bool rising, bool simulated)
 
 static bool statusUplinkNeeded()
 {
-    return statusRevision != statusRevisionAcked ||
+    return manualConfirmPending || statusRevision != statusRevisionAcked ||
            busyEventRevision != busyEventAcked;
 }
 
@@ -921,6 +930,10 @@ static bool equalsAsciiIgnoreCase(const uint8_t *data, uint8_t length, const cha
 
 static void receiveCallback(SERVICE_LORA_RECEIVE_T *data)
 {
+    if (data) {
+        loraDiagnostics.received(activitySeconds(), networkActiveSlot(), data->Rssi, data->Snr);
+        activityAdd(35, (uint32_t)networkActiveSlot() + 1);
+    }
     if(data && networkJoined())networkDownlinkReceived();
     if(!networkJoined())return;
     if (data == nullptr || data->Port != runtimeConfig.loraFport || data->BufferSize == 0)
@@ -968,6 +981,8 @@ static void receiveCallback(SERVICE_LORA_RECEIVE_T *data)
 
 static void joinCallback(int32_t status)
 {
+    loraDiagnostics.joined(activitySeconds(), networkActiveSlot(), status);
+    activityAdd(36, (uint32_t)status);
     networkJoinResult(status);
     if(!companionUsbActive())Serial.printf("LoRaWAN join-status: %ld\r\n", (long)status);
     if (status == RAK_LORAMAC_STATUS_OK)
@@ -987,7 +1002,17 @@ static void joinCallback(int32_t status)
 
 static void sendCallback(int32_t status)
 {
-    networkTxComplete(healthTxInFlight,status==RAK_LORAMAC_STATUS_OK&&api.lorawan.cfs.get());
+    // RUI can reject our payload while sending an empty MAC-command flush.
+    // Its later callback must not acknowledge an unsent application status.
+    if (!statusTxInFlight) return;
+    const bool acknowledged = status == RAK_LORAMAC_STATUS_OK && api.lorawan.cfs.get();
+    loraManualRadioEnd();
+    const bool tracked = loraDiagnostics.txState == 1;
+    loraDiagnostics.complete(status, acknowledged);
+    if (tracked && status != RAK_LORAMAC_STATUS_OK) activityAdd(32, (uint32_t)status);
+    if (tracked && (loraDiagnostics.ack == 2 || loraDiagnostics.ack == 3))
+        activityAdd(loraDiagnostics.ack == 2 ? 33 : 34, loraDiagnostics.sequence);
+    networkTxComplete(healthTxInFlight, acknowledged);
     healthTxInFlight=false;
     if(!companionUsbActive())Serial.printf("LoRaWAN uplink-status: %ld\r\n", (long)status);
     statusTxInFlight = false;
@@ -1019,6 +1044,7 @@ static void sendCallback(int32_t status)
 
 static bool configureLorawan()
 {
+    loraConfigurePower(runtimeConfig.loraTxDbm);
     if (!recoverPendingLorawanUpdate()) return false;
 
     // Use the device's current RUI identity by default, including a fresh
@@ -1114,6 +1140,7 @@ static bool configureLorawan()
         settingsOk = api.lorawan.adr.set(runtimeConfig.adrEnabled != 0);
     if (settingsOk && api.lorawan.cfm.get())
         settingsOk = api.lorawan.cfm.set(0);
+    if (settingsOk) settingsOk = loraApplyPower();
 
     if (!settingsOk)
     {
@@ -1144,20 +1171,32 @@ static void sampleContact(void *context)
         if (!runtimeConfig.inputEnabled) return;
         const bool rising = stableContact == CONTACT_ACTIVE_LEVEL;
         if (rising) ++risingCount; else ++fallingCount;
-        const uint8_t next = (edgeWrite + 1) % 16;
-        if (next == edgeRead) { ++inputOverflow; return; }
-        edgeQueue[edgeWrite] = rising ? 1 : 0;
-        edgeWrite = next;
+        edgeChangedAt=now;
+        ++edgeVersion;
     }
 }
 
 static void updateContact()
 {
     if (!inputTimerReady) sampleContact(nullptr);
-    if (edgeRead == edgeWrite) return;
-    const bool rising = edgeQueue[edgeRead] != 0;
-    edgeRead = (edgeRead + 1) % 16;
-    executeInputEdge(rising, false);
+    const uint32_t now=millis(),irqMask=__get_PRIMASK();
+    __disable_irq();
+    const uint32_t version=edgeVersion;
+    const bool rising=stableContact==CONTACT_ACTIVE_LEVEL;
+    bool fire=false;
+    if(!runtimeConfig.inputEnabled || pendingRebootAt){
+        inputActionTimer.pending=false;edgeConsumed=version;
+    }else{
+      if(version!=edgeConsumed){
+        edgeConsumed=version;
+        const unsigned index=rising?0:1;
+        inputActionTimer.edge(edgeChangedAt,rising,runtimeConfig.edgeHoldSeconds[index],runtimeConfig.edgeDelaySeconds[index]);
+      }
+      // Claim atomically with the sampled level; never release a stale edge.
+      if(lastRawContact==stableContact)fire=inputActionTimer.take(now,rising);
+    }
+    __set_PRIMASK(irqMask);
+    if(fire)executeInputEdge(rising,false);
 }
 
 static bool applyConfigRequest(CompanionConfigRequest &request,
@@ -1346,6 +1385,8 @@ static void servicePortalApi()
     live.lastActions = lastActions;
     live.relayChangedAt = relayChangedAt;
     live.inputOverflow = inputOverflow;
+    live.loraPending = manualConfirmPending ||
+        statusRevision != (statusTxInFlight ? statusRevisionInFlight : statusRevisionAcked);
     legacyPortalSetStatus(live);
 #if LEGACY_BLE_AT
     legacyPortalService();
@@ -1356,7 +1397,12 @@ static void servicePortalApi()
         if (action == 1 || action == 2) executeInputEdge(action == 1, true);
         else if (action == 3) executeActions(ACTION_RELAY_PULSE | ACTION_UPLINK, 6);
         else if (action == 4) executeActions(ACTION_RELAY_OFF | ACTION_UPLINK, 6);
-        else if (action == 5) executeActions(ACTION_UPLINK, 6);
+        else if (action == 5) {
+            // One manually requested confirmation, not an ACK for every input edge.
+            manualConfirmPending = true;
+            lastStatusAttemptAt = 0; // Manual requests skip the application retry timer.
+            executeActions(ACTION_UPLINK, 6);
+        }
         else if (action == PORTAL_ACTION_REBOOT) pendingRebootAt = millis() + 2500UL;
 #if !LEGACY_BLE_AT
         else if(action==6) companionScan();
@@ -1486,17 +1532,30 @@ static void sendStatusUplink()
     payload[18] = runtimeConfig.deviceProfile;
     payload[19] = (lastActions & (ACTION_LOAD_ON|ACTION_LOAD_OFF))?pendingLoadValue+1:0;
 
+    if (!loraApplyPower()) return;
+    if (manualConfirmPending && !loraManualRadioBegin()) return;
     statusRevisionInFlight = revisionForPayload;
     busyStatusInFlight = reportBusyEvent;
     busyEventInFlight = busyRevisionForPayload;
     statusTxInFlight = true;
     lastStatusAttemptAt = now;
     healthTxInFlight=networkHealthDue();
-    if (!api.lorawan.send(sizeof(payload), payload, runtimeConfig.loraFport, healthTxInFlight, 0))
+    const bool confirmed = healthTxInFlight || manualConfirmPending;
+    // Consume the one-shot when submitted, even if the stack rejects it.
+    // A later automatic retry must not inherit the manual timing override.
+    manualConfirmPending = false;
+    loraDiagnostics.submit(activitySeconds(), networkActiveSlot(), confirmed);
+    if (!api.lorawan.send(sizeof(payload), payload, runtimeConfig.loraFport, confirmed, 0))
     {
+        loraManualRadioEnd();
+        loraDiagnostics.rejected();
+        activityAdd(31, loraDiagnostics.sequence);
         healthTxInFlight=false;
         statusTxInFlight = false;
         busyStatusInFlight = false;
+    }
+    else {
+        activityAdd(30, loraDiagnostics.sequence);
     }
 }
 
@@ -1509,7 +1568,7 @@ void setup()
     // concurrently consume replies intended for the portal/companion parser.
     Serial1.begin(115200, RAK_CUSTOM_MODE);
     delay(1500);
-    Serial.println("Victron LoRaBLE Remote - firmware v4.11.1");
+    Serial.println("Victron LoRaBLE Remote - firmware v" LORABLE_FIRMWARE_VERSION);
     activityAdd(1);
 
     setEspPowerMode(POWER_OFF);
@@ -1646,7 +1705,10 @@ void loop()
     }
 
     activityTick();
-    if(lorawanConfigured&&!pendingRebootAt)networkTick(statusTxInFlight);
+    // Give an explicit Send-now its current session before automatic preemption
+    // can replace it. An unjoined node still lets the network manager proceed.
+    if(lorawanConfigured&&!pendingRebootAt)
+        networkTick(statusTxInFlight || (manualConfirmPending && networkJoined()));
     const uint32_t now = millis();
     const bool currentWifiWanted = wifiWanted(now);
     if (currentWifiWanted != lastWifiWanted)

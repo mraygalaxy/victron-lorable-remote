@@ -1,4 +1,4 @@
-# Victron LoRaBLE Remote 4.11.1
+# Victron LoRaBLE Remote 4.12.0
 
 ## Nederlands
 
@@ -10,13 +10,13 @@
 
 Eerste installatie vanaf RAK-fabrieksfirmware gebruikt Windows 10/11 met WiFi (automatische IP-instellingen). De wizard regelt de tijdelijke WiFi-verbinding. Een bestaande complete installatie, vanaf LoRaBLE 4.11, wordt uitsluitend via USB bijgewerkt. Instellingen blijven behouden.
 
-**Na installatie:** WiFi **Victron LoRaBLE Remote** · wachtwoord **CHANGE-ME-FIRST** · **http://192.168.4.1/**. Wijzig het wachtwoord meteen.
+**Na eerste installatie:** WiFi **Victron LoRaBLE Remote** · wachtwoord **CHANGE-ME-FIRST** · **http://192.168.4.1/**. Wijzig het wachtwoord meteen. Na een update blijven je eigen instellingen gelden; in routermodus vind je het DHCP-adres van dit board in de apparatenlijst van je router.
 
 **Volgende update via WiFi:** Beheer → Firmware bijwerken → Bladeren… → kies de `.bin` uit de map `firmware` → Updaten.
 
 Bij een fout: houd de voeding aangesloten, bewaar de melding en wis niets. Gebruik de meegeleverde installer, geen generieke chipflasher.
 
-[Installatie](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.11.1/docs/INSTALL.md) · [LoRaWAN instellen](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.11.1/docs/NETWORKS.md)
+[Installatie](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/INSTALL.md) · [Handleiding](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/MANUAL.md) · [LoRaWAN instellen](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/NETWORKS.md)
 
 ## English
 
@@ -28,12 +28,12 @@ Bij een fout: houd de voeding aangesloten, bewaar de melding en wis niets. Gebru
 
 First installation from RAK factory firmware uses Windows 10/11 with WiFi (automatic IP settings). The wizard handles the temporary WiFi connection. Existing complete installations, from LoRaBLE 4.11 onward, update over USB only. Settings are retained.
 
-**After installation:** WiFi **Victron LoRaBLE Remote** · password **CHANGE-ME-FIRST** · **http://192.168.4.1/**. Change the password immediately.
+**After first installation:** WiFi **Victron LoRaBLE Remote** · password **CHANGE-ME-FIRST** · **http://192.168.4.1/**. Change the password immediately. Updates retain your settings; in router mode, find this board's DHCP address in your router's device list.
 
 **Next update over WiFi:** Manage → Update firmware → Browse… → choose the `.bin` in the `firmware` folder → Update.
 
 On errors, keep power connected, retain the message and erase nothing. Use the supplied installer, not a generic chip flasher.
 
-[Installation](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.11.1/docs/INSTALL.md#english) · [Network setup](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.11.1/docs/NETWORKS.md#english)
+[Installation](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/INSTALL.md#english) · [Manual](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/MANUAL.md#english) · [Network setup](https://github.com/roelbroersma/victron-lorable-remote/blob/v4.12.0/docs/NETWORKS.md#english)
 
 © 2026 Roel Broersma.

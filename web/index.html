@@ -10,6 +10,8 @@ nav{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:22px}
 .panel-note{font-size:14px;line-height:1.6;color:#48657a}.tools{display:flex;flex-wrap:wrap;gap:10px}.tools button{width:auto;padding:10px 14px;font-size:14px}
 #log_rows{list-style:none;padding:0;font-size:13px;line-height:1.7;font-family:ui-monospace,monospace}#log_rows li{padding:7px 0;border-bottom:1px solid #e6eef4}#import_preview{max-height:180px;overflow:auto;white-space:pre-wrap}progress{width:100%}
 .field>label.identity-toggle{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:500}.identity-toggle input{flex:0 0 18px;height:18px;margin:0}
+.range-setting{display:flex;align-items:center;gap:14px}.range-setting input{padding:8px 0;accent-color:#087bb8;min-width:0}.range-setting output{min-width:62px;font-weight:650;white-space:nowrap}.edge-timing-note{grid-column:1/-1;margin:0;color:#597488;font-size:12px;line-height:1.5}
+.lora-diagnostics{margin-top:14px;padding:16px;background:#fff;border:1px solid #dce7ee;border-radius:12px}.lora-diagnostics h3{font-size:15px;margin:0 0 12px}.lora-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0}.lora-metrics dt{font-size:12px;color:#597488;margin-bottom:5px}.lora-metrics dd{margin:0;overflow-wrap:anywhere}.lora-metrics strong{font-size:14px;font-weight:650}.lora-metrics small{display:block;margin-top:4px;font-size:12px;color:#597488;line-height:1.5}.lora-metrics [data-state=error] strong{color:#ad3434}.lora-metrics [data-state=attention] strong{color:#946219}.lora-metrics [data-state=ok] strong{color:#16846b}.lora-diagnostics>p{font-size:12px;line-height:1.5;margin:12px 0 0;color:#597488}#status.stale .lora-diagnostics{opacity:.55}@media(max-width:620px){.lora-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.lora-diagnostics{padding:13px}}
 @media(max-width:620px){nav{grid-template-columns:repeat(3,1fr)}}
 .panel-title{margin:0 0 20px;padding:0;font-size:18px;line-height:1.4;color:var(--navy)}.firmware-line{border-radius:8px;background:#eef6fb;padding:12px;font-size:14px}.table-wrap{overflow-x:auto}#power_table{width:100%;border-collapse:collapse;font-size:13px}#power_table th,#power_table td{text-align:left;padding:9px 5px;border-bottom:1px solid #e1eaf0}#power_table th{font-weight:600}#power_table input{width:100%;min-width:62px;padding:8px;font-size:13px}#power_table td:nth-child(2),#power_table td:nth-child(3){width:20%}.power-total{font-weight:650;font-size:14px}#power_reference{font-size:13px}#running_firmware{overflow-wrap:anywhere}@media(max-width:620px){#power_table th,#power_table td{padding:8px 3px;font-size:11px}#power_table input{min-width:53px}.panel-title{font-size:17px}}
 .power-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.power-heading h2{margin:0}.unit-switch{display:flex;background:#edf4f8;border-radius:9px;padding:3px;flex-shrink:0}.unit-switch button{padding:7px 12px;width:auto;font-size:12px;background:transparent;color:#45667c;font-weight:500}.unit-switch button[aria-pressed=true]{background:white;color:#087bb8;box-shadow:0 1px 5px #153f5820}.power-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}.power-summary article{background:#eef6fb;border-radius:10px;padding:13px}.power-summary small{display:block;color:#527084;font-size:12px;line-height:1.5}.power-summary strong{display:block;color:#087bb8;font-size:20px;margin-top:5px;font-weight:650}.power-total{font-weight:400}#power_table tbody th{font-weight:400;color:#456174}#power_table td:last-child{text-align:right;font-variant-numeric:tabular-nums}#power_excluded{font-size:12px}#power_class{font-size:12px;color:#657f90}#power_reference{font-weight:400}#power_reference_title{font-size:13px}@media(max-width:620px){.power-summary{grid-template-columns:1fr}.power-summary article{display:flex;align-items:center;justify-content:space-between;gap:10px}.power-summary strong{margin:0;font-size:18px}.power-heading h2{font-size:16px}}
@@ -22,8 +24,13 @@ nav{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:22px}
 // One definition per field, with a complete help text in both languages.
 const F=[
 ["general","WiFi-netwerk","WiFi network"],
-["wifi_ssid","WiFi-naam","WiFi name","text",[1,32],"De naam van het lokale WiFi-netwerk én de titel boven deze pagina. Gebruik 1–32 gewone letters, cijfers of leestekens; spaties mogen. Na opslaan herstart het board en moet je opnieuw met deze naam verbinden.","Name of the local WiFi network and the heading of this page. Use 1–32 printable ASCII characters; spaces are allowed. Saving restarts the board; reconnect using this name."],
-["wifi_password","Nieuw WiFi-wachtwoord","New WiFi password","password",[12,63],"Leeg laten behoudt het bestaande wachtwoord. Een nieuw wachtwoord heeft 12–63 zichtbare ASCII-tekens, zonder spaties. Dit beveiligt het lokale instellingen-netwerk met WPA2; iedereen met dit wachtwoord kan instellingen wijzigen. Geen internetverbinding nodig.","Leave empty to keep the existing password. A new password needs 12–63 printable ASCII characters without spaces. WPA2 protects the local setup network; anyone with its password can change settings. No internet connection is needed."],
+["wifi_mode","WiFi-modus","WiFi mode","select",[[0,"Eigen accesspoint","Device access point"],[1,"Eigen router + AP-terugval","Own router + AP fallback"],[2,"WiFi uit","WiFi off"]],"Accesspoint: direct bereikbaar op 192.168.4.1. Router: wacht de opstarttijd af en probeert verbinding plus een DHCP-adres te krijgen, eerst zonder AP. Pas na een mislukte poging of verbindingsverlies start AP-terugval op 192.168.4.1, zolang het WiFi-venster open is. Automatische pogingen blijven doorgaan. Zodra DHCP lukt gaat het AP uit; open het toegewezen IP-adres van dit board, te vinden in de apparatenlijst van je router. Uit betekent geen WiFi of AP-terugval.","Access point: available immediately at 192.168.4.1. Router: waits for the startup time and tries connecting and obtaining a DHCP address, initially without AP. Only a failed attempt or connection loss starts AP fallback at 192.168.4.1 while the WiFi window is open. Retries continue automatically. Once DHCP succeeds AP switches off; open the IP address assigned to this board, found in your router’s device list. Off means no WiFi or AP fallback."],
+["wifi_ssid","WiFi-naam accesspoint","Access-point WiFi name","text",[1,32],"Naam van het lokale instellingen-netwerk én de titel boven deze pagina. 1–32 gewone ASCII-tekens; spaties mogen. Wordt in routermodus ook voor AP-terugval gebruikt. Opslaan herstart het board.","Name of the local setup network and this page. 1–32 printable ASCII characters; spaces allowed. Also used for AP fallback in router mode. Saving restarts the board."],
+["wifi_password","Nieuw accesspoint-wachtwoord","New access-point password","password",[12,63],"Leeg behoudt het bestaande wachtwoord. Nieuw: 12–63 zichtbare ASCII-tekens, zonder spaties. Beveiligt het directe netwerk én de AP-terugval met WPA2. Dit is niet het wachtwoord van je router.","Empty keeps the existing password. New: 12–63 printable ASCII characters without spaces. WPA2 protects both direct access and AP fallback. This is not your router password."],
+["sta_ssid","WiFi-naam eigen router","Own router WiFi name","text",[0,32],"Exacte naam van je eigen 2,4GHz-WiFi-netwerk. Verplicht in routermodus; 1–32 gewone ASCII-tekens, inclusief spaties.","Exact name of your own 2.4 GHz WiFi network. Required in router mode; 1–32 printable ASCII characters, including spaces."],
+["sta_password","Nieuw routerwachtwoord","New router password","password",[8,63],"8–63 gewone ASCII-tekens; spaties mogen. Leeg behoudt het opgeslagen routerwachtwoord. Het wachtwoord wordt nooit uitgelezen of in een back-up opgenomen.","8–63 printable ASCII characters; spaces allowed. Empty keeps the saved router password. Never read back or included in a backup."],
+["sta_delay_s","Opstarttijd router (seconden)","Router startup time (seconds)","number",[0,600],"Wacht vóór de eerste verbindingspoging, zodat de router kan opstarten. Standaard 90 s; 0 = meteen verbinden. Tijdens deze eerste wachttijd is er nog geen accesspoint.","Wait before the first connection attempt so the router can start. Default 90 s; 0 = connect immediately. There is no access point during this initial wait."],
+["sta_timeout_s","Verbinding proberen gedurende (seconden)","Connection attempt window (seconds)","number",[10,300],"Probeer gedurende 10–300 s verbinding en een DHCP-adres te krijgen; standaard 60 s. Lukt dat niet, dan start AP-terugval op 192.168.4.1 binnen het WiFi-venster. Het board probeert de router daarna automatisch opnieuw.","Try connecting and obtaining a DHCP address for 10–300 s; default 60 s. On failure AP fallback starts at 192.168.4.1 within the WiFi window. The board then retries the router automatically."],
 ["window_min","WiFi-tijd na opstarten (minuten)","WiFi time after boot (minutes)","number",[5,240],"Na elke opstart blijft het instellingen-WiFi deze tijd beschikbaar. Aanpassen van instellingen herstart het board. Flanken en toegestane LoRa-opdrachten hebben hieronder hun eigen tijden. De RAK moet daarvoor voeding houden.","After every boot, settings WiFi stays available for this time. Saving settings restarts the board. Input edges and allowed LoRa commands have independent timers below. The RAK must remain powered."],
 ["device","Apparaatprofiel","Device profile"],
 ["profile","Apparaat","Device","select",[[1,"Victron Smart MPPT"],[3,"Victron Smart BatteryProtect"],[2,"Generic Bluetooth · GATT"]],"",""],
@@ -40,11 +47,15 @@ const F=[
 ["relay_enabled","Relaisuitgang gebruiken","Use relay output","checkbox",[],"Er is één fysieke relaisuitgang. Op de RAK13001 zijn NO1/NO2 de twee aansluitingen van hetzelfde contact, niet twee uitgangen. De RAK13007 heeft ook één relais en geen ingang. De uitgang start altijd UIT. Dit is apart van de MPPT LOAD-uitgang. De getoonde stand is de aansturing, zonder terugmelding van de contacten.","There is one physical relay output. On RAK13001, NO1/NO2 are two terminals of the same contact, not two outputs. RAK13007 also has one relay and no input. Output always starts OFF. It is separate from the MPPT LOAD output. Status shows the command, without contact feedback."],
 ["relay_pulse_ms","Relaispuls (milliseconden)","Relay pulse (milliseconds)","number",[100,60000],"Duur voor de actie Relaispuls: 100–60000 ms; 1000 ms = 1 seconde. Daarna wordt de relaisuitgang weer UIT gezet. Een nieuwe puls herstart de tijd. Dit is geen nauwkeurige timinguitgang of veiligheidsfunctie. Een LoRa-puls is een radio-statusbericht en heeft niet deze pulsduur.","Duration of a relay-pulse action: 100–60000 ms; 1000 ms = 1 second. The relay then switches OFF. A new pulse restarts the timer. This is not a precision timing output or safety function. A LoRa pulse is a radio status message and does not use this duration."],
 ["rising","↑ Opgaande flank · spanning komt op","↑ Rising edge · voltage becomes present"],
-["rise_lora","LoRa-bericht sturen","Send LoRa message","checkbox",[],"Bij het aanwezig worden van 12–24 V DC wordt een statusuplink aangevraagd. Kan samen met Bluetooth en/of relais. Snel opeenvolgende gebeurtenissen kunnen tot één statusbericht worden samengevoegd; duty-cycle en netwerkomstandigheden kunnen verzending uitstellen. Periodieke status blijft onafhankelijk werken.","Requests a status uplink when 12–24 V DC becomes present. Can be combined with Bluetooth and/or relay actions. Rapid events may be combined into one status message; duty-cycle and network conditions can delay sending. Periodic status remains independent."],
+["rise_hold_s","Minimale AAN-tijd (seconden)","Minimum ON duration (seconds)","number",[0,3600],"De ingang moet zolang onafgebroken AAN blijven. 0 = geen extra filtertijd. Valt de ingang vóór uitvoering weg, dan vervalt de wachtende actie.","The input must remain continuously ON for this long. 0 = no extra filter time. If the input drops before execution, the pending action is cancelled."],
+["rise_delay_s","Actievertraging (seconden)","Action delay (seconds)","number",[0,3600],"Extra wachttijd ná de minimale AAN-tijd; 0 = geen extra vertraging. Daarna worden de gekozen acties één keer uitgevoerd. De ingang moet tot uitvoering AAN blijven.","Extra wait after the minimum ON duration; 0 = no extra delay. The selected actions then run once. The input must remain ON until execution."],
+["rise_lora","LoRa-bericht sturen","Send LoRa message","checkbox",[],"Vraagt een statusuplink aan na de minimale AAN-tijd en actievertraging. Kan samen met Bluetooth en/of relais. Snelle gebeurtenissen kunnen worden samengevoegd; duty-cycle en netwerkcondities kunnen verzending uitstellen. Periodieke status blijft onafhankelijk werken.","Requests a status uplink after the minimum ON duration and action delay. Can run with Bluetooth and/or relay actions. Rapid events may be combined; duty cycle and network conditions may defer transmission. Periodic status remains independent."],
 ["rise_ble","Bluetooth Functie","Bluetooth function","select",[[0,"Geen actie","No action"],[4,"Functie 1","Function 1"],[8,"Functie 2","Function 2"]],"Voer de gekozen opgeslagen Bluetooth Functie eenmaal uit bij deze flank. Je kunt deze combineren met een LoRa-bericht en een relaisactie. Bij een mislukte poging gelden de ingestelde herhalingen. Een wijziging in het functiescherm geldt ook voor deze verwijzing.","Run the selected saved Bluetooth function once on this edge. It can be combined with a LoRa message and relay action. Failed attempts use the configured retries. Changes in the function editor also apply to this reference."],
 ["rise_relay","Relaisactie","Relay action","select",[[0,"Geen actie","No action"],[16,"Relais AAN","Relay ON"],[32,"Relais UIT","Relay OFF"],[64,"Relaispuls","Relay pulse"]],"Actie op de fysieke relaisuitgang wanneer 12–24 V DC opkomt. Alleen actief als Relaisuitgang gebruiken is aangevinkt. Dit bedient niet de MPPT. Combineren met een LoRa-bericht en/of Bluetooth is toegestaan.","Physical relay action when 12–24 V DC becomes present. Only active when Use relay output is enabled. Does not operate the MPPT. May be combined with a LoRa message and/or Bluetooth."],
 ["falling","↓ Neergaande flank · spanning valt weg","↓ Falling edge · voltage disappears"],
-["fall_lora","LoRa-bericht sturen","Send LoRa message","checkbox",[],"Vraagt een statusuplink aan zodra de 12–24 V DC wegvalt. Onafhankelijk instelbaar van de opgaande flank. Uitvinken onderdrukt dit directe flankbericht; periodieke statusberichten blijven werken.","Requests a status uplink when 12–24 V DC disappears. Configured independently of the rising edge. Unchecking suppresses this immediate edge message; periodic status continues."],
+["fall_hold_s","Minimale UIT-tijd (seconden)","Minimum OFF duration (seconds)","number",[0,3600],"De ingang moet zolang onafgebroken UIT blijven. 0 = geen extra filtertijd. Keert de spanning vóór uitvoering terug, dan vervalt de wachtende actie.","The input must remain continuously OFF for this long. 0 = no extra filter time. If voltage returns before execution, the pending action is cancelled."],
+["fall_delay_s","Actievertraging (seconden)","Action delay (seconds)","number",[0,3600],"Extra wachttijd ná de minimale UIT-tijd; 0 = geen extra vertraging. Daarna worden de gekozen acties één keer uitgevoerd. De ingang moet tot uitvoering UIT blijven en het board moet voeding houden.","Extra wait after the minimum OFF duration; 0 = no extra delay. The selected actions then run once. The input must remain OFF until execution and the board must remain powered."],
+["fall_lora","LoRa-bericht sturen","Send LoRa message","checkbox",[],"Vraagt een statusuplink aan na de minimale UIT-tijd en actievertraging. Onafhankelijk van de opgaande flank. Uitvinken onderdrukt dit flankbericht; periodieke statusberichten blijven werken.","Requests a status uplink after the minimum OFF duration and action delay. Independent of the rising edge. Unchecking suppresses this edge message; periodic status continues."],
 ["fall_ble","Bluetooth Functie","Bluetooth function","select",[[0,"Geen actie","No action"],[4,"Functie 1","Function 1"],[8,"Functie 2","Function 2"]],"Voer de gekozen opgeslagen Bluetooth Functie eenmaal uit bij deze flank. Je kunt deze combineren met een LoRa-bericht en een relaisactie. Bij een mislukte poging gelden de ingestelde herhalingen. Een wijziging in het functiescherm geldt ook voor deze verwijzing.","Run the selected saved Bluetooth function once on this edge. It can be combined with a LoRa message and relay action. Failed attempts use the configured retries. Changes in the function editor also apply to this reference."],
 ["fall_relay","Relaisactie","Relay action","select",[[0,"Geen actie","No action"],[16,"Relais AAN","Relay ON"],[32,"Relais UIT","Relay OFF"],[64,"Relaispuls","Relay pulse"]],"Relaisactie bij wegvallen van 12–24 V DC. AAN blijft aan tot een UIT-opdracht, pulsafloop of herstart. Geen actie verandert de bestaande relaisstand niet. De RAK moet voeding blijven houden.","Relay action when 12–24 V DC disappears. ON remains on until an OFF command, pulse expiry or reboot. No action leaves the relay unchanged. The RAK must remain powered."],
 ["lora","LoRaWAN","LoRaWAN"],
@@ -53,6 +64,7 @@ const F=[
 ["fport","FPort","FPort","number",[1,223],"Applicatiepoort van de LoRaWAN-berichten, standaard 10. Gebruik 1–223 en stem downlinks en payload-codec hierop af. Dit is geen UDP-poort en geen radiofrequentie. Poort 0 is voor het LoRaWAN-protocol en wordt niet toegestaan.","Application port for LoRaWAN messages, default 10. Use 1–223 and align downlinks and the payload codec. This is not a UDP port or radio frequency. Port 0 is reserved for LoRaWAN protocol traffic and is not allowed."],
 ["subband","Subband (US915/AU915)","Sub-band (US915/AU915)","select",[[0,"Alle","All"],[1,"1"],[2,"2"],[3,"3"],[4,"4"],[5,"5"],[6,"6"],[7,"7"],[8,"8"]],"Alleen relevant voor US915/AU915: kies de groep van acht uplink-kanalen die jouw netwerk gebruikt, of Alle. Voor andere regio’s wordt dit automatisch Alle. Controleer de netwerkdocumentatie; een verkeerde groep kan aanmelden verhinderen.","Only relevant to US915/AU915: select the group of eight uplink channels used by your network, or All. Other regions automatically use All. Check your network documentation; the wrong group can prevent joining."],
 ["adr","Automatische datasnelheid (ADR)","Adaptive data rate (ADR)","select",[[1,"Aan","On"],[0,"Uit","Off"]],"Standaard Aan. De netwerkserver kan snelheid en zendvermogen aanpassen. Uit gebruikt de begin-datasnelheid van het gekozen regio-profiel; dit scherm biedt geen losse uplink-DR-keuze. ADR is geen instelling voor de Bluetooth- of WiFi-snelheid.","Default On. The network server may adjust data rate and transmit power. Off uses the starting data rate of the selected region profile; this page does not offer a separate uplink DR selector. ADR does not affect Bluetooth or WiFi speed."],
+["tx_dbm","Maximaal LoRa-zendvermogen","Maximum LoRa transmit power","range",[0,22],"Vermogensgrens van 0–22 dBm, standaard 14 dBm. 0 dBm = 1 mW; dit schakelt de radio niet uit. ADR en regionale beperkingen kunnen het werkelijk ingestelde vermogen verlagen. De status toont het laatst ingestelde radiovermogen, geen meting. Antennewinst telt mee voor de toegestane EIRP.","Power ceiling from 0–22 dBm, default 14 dBm. 0 dBm = 1 mW; this does not switch the radio off. ADR and regional restrictions may lower the configured output. Status shows the last configured radio power, not a measurement. Antenna gain contributes to the permitted EIRP."],
 ["dev_eui","DevEUI · automatisch uitgelezen","DevEUI · read automatically","text",[16,16],"De actieve DevEUI wordt automatisch uit het RAK-board gelezen: 16 hextekens. Vul op de netwerkserver exact deze waarde in. Deze waarde blijft normaal alleen-lezen; bewust wijzigen kan onder Geavanceerd. Als de DevEUI eerder handmatig is gewijzigd, toont dit veld die opgeslagen waarde, niet noodzakelijk de oorspronkelijke stickerwaarde. De AppKey en JoinEUI zijn aparte instellingen.","The active DevEUI is read automatically from the RAK board: 16 hexadecimal characters. Register this exact value on the network server. Normally read-only; intentional editing is available under Advanced. If the DevEUI was changed previously, this shows that stored value, not necessarily the original sticker value. AppKey and JoinEUI are separate settings."],
 ["join_eui","JoinEUI / AppEUI","JoinEUI / AppEUI","text",[16,16],"16 hextekens die overeenkomen met de applicatie-/joininstelling op de netwerkserver. Dit hoeft niet dezelfde waarde als DevEUI te zijn. Gebruik de waarde van jouw netwerk, niet zomaar die van een ander apparaat.","16 hexadecimal characters matching the application/join configuration on the network server. It need not equal DevEUI. Use your network value, not a value copied from an unrelated device."],
 ["app_key","Nieuwe AppKey","New AppKey","password",[32,32],"Geheime OTAA-sleutel: precies 32 hextekens, gelijk aan de netwerkserver. Leeg laten behoudt de bestaande sleutel. De sleutel wordt niet uitgelezen in dit scherm.","Secret OTAA key: exactly 32 hexadecimal characters, matching the network server. Leave empty to retain the existing key. This page never reads the key back."],
@@ -122,6 +134,8 @@ for(const f of F.filter(f=>/^fn\d+_kind$/.test(f[0]))) {
  f[6]+=' BatteryProtect reads identity and mode first; writes only when changed. Success requires mode AND actual output readback. BMS and low-voltage protections are not modified.';
 }
 const MAX_FUNCTIONS=10;
+const SETTINGS_SCHEMA=10;
+const settingsDefaults={tx_dbm:14,wifi_mode:0,sta_ssid:'',sta_delay_s:90,sta_timeout_s:60,rise_hold_s:0,rise_delay_s:0,fall_hold_s:0,fall_delay_s:0};
 let functionCount=2,powerUnit='mAh',networkOrder=[0,1,2,3];
 let lang=0,ready=false,saving=false,current=null,statusData=null,statusTimer,session=null,page='status',pendingImport=null;
 let baseline='',dirty=false;
@@ -144,14 +158,17 @@ for(const f of F){
  }else{
   el.type=type;
   if(type==='checkbox')el.value='1';
-  else if(type==='number'){el.min=range[0];el.max=range[1];el.step='1';}
+  else if(type==='number'||type==='range'){el.min=range[0];el.max=range[1];el.step='1';}
   else{el.minLength=range[0];el.maxLength=range[1];el.autocomplete=type==='password'?'new-password':'off';el.spellcheck=false;}
   if(type!=='password'&&type!=='checkbox')el.required=true;
  }
  const details=document.createElement('details'),summary=document.createElement('summary'),help=document.createElement('p');
  summary.textContent='ⓘ';summary.setAttribute('aria-label','Info');help.id='help_'+id;el.setAttribute('aria-describedby',help.id);
- details.append(summary,help);box.append(el,details);grid.append(box);
+ details.append(summary,help);
+ if(type==='range'){const control=document.createElement('div'),value=document.createElement('output');control.className='range-setting';value.id=id+'_value';value.htmlFor=id;control.append(el,value);box.append(control,details);}else box.append(el,details);
+ grid.append(box);
 }
+for(const edge of ['rise','fall']){const note=document.createElement('p');note.id=edge+'_timing_note';note.className='edge-timing-note';$('field_'+edge+'_hold_s').parentElement.append(note);}
 const identity=document.createElement('label');identity.className='identity-toggle';identity.innerHTML='<input id="edit_identity" type="checkbox"><span id="edit_identity_label"></span>';$('field_dev_eui').append(identity);
 // Health belongs with common LoRa settings, not the preceding Bluetooth panel.
 $('legend_lora').parentElement.querySelector('.grid').append($('field_network_health_min'));
@@ -188,7 +205,7 @@ function renderNetworks(){
   for(const f of ['rx2_freq','rx2_dr']){$('field_net'+i+'_'+f).hidden=!custom;$('net'+i+'_'+f).required=custom;$('net'+i+'_'+f).disabled=!custom;}
  }
 }
-for(const [field,id]of [['dev_eui','identity_warning'],['class','class_note'],['profile','profile_note'],['input_enabled','input_note']]){const p=document.createElement('p');p.id=id;p.className='panel-note';$('field_'+field).append(p);}
+for(const [field,id]of [['dev_eui','identity_warning'],['class','class_note'],['profile','profile_note'],['input_enabled','input_note'],['wifi_mode','wifi_mode_note']]){const p=document.createElement('p');p.id=id;p.className='panel-note';$('field_'+field).append(p);}
 const statusLabels={lora:['LoRa-status','LoRa status'],ble:['Bluetooth-status','Bluetooth status'],input:['Ingang · 12–24 V DC','Input · 12–24 V DC'],output:['Relaisuitgang','Relay output'],wifi:['WiFi-status','WiFi status'],uptime:['Uptime','Uptime']};
 const modeHelp={
  1:['Altijd AAN. Let op: deze LOAD-modus biedt geen onderspanningsafschakeling.','Always ON. Caution: this LOAD mode has no low-voltage cutoff.'],
@@ -208,14 +225,62 @@ for(const id of Object.keys(statusLabels)){
  }
  $('status_cards').append(card);
 }
-const testBox=document.createElement('fieldset'),testLegend=document.createElement('h2'),testInfo=document.createElement('p'),testButtons=document.createElement('div'),testResult=document.createElement('p');
+const loraMetrics={request:['Radio-aanvraag','Radio request'],tx:['Lokaal verzonden','Local transmission'],ack:['Netwerkbevestiging','Network acknowledgement'],rx:['Laatste geldige ontvangst','Last valid reception'],power:['LoRa-zendvermogen','LoRa transmit power'],join:['Laatste aanmelding','Last join result']};
+const loraDiagnostics=document.createElement('section');loraDiagnostics.id='lora_diagnostics';loraDiagnostics.className='lora-diagnostics';loraDiagnostics.setAttribute('aria-labelledby','lora_diagnostics_title');
+loraDiagnostics.innerHTML='<h3 id="lora_diagnostics_title"></h3><dl class="lora-metrics">'+Object.keys(loraMetrics).map(id=>'<div id="lora_'+id+'_metric"><dt id="lora_'+id+'_label"></dt><dd><strong id="lora_'+id+'_value"></strong><small id="lora_'+id+'_detail"></small></dd></div>').join('')+'</dl><p id="lora_pending_note" role="status"></p><p id="lora_delivery_note"></p>';
+$('connection_note').before(loraDiagnostics);
+const testBox=document.createElement('fieldset'),testLegend=document.createElement('h2'),testInfo=document.createElement('p'),testButtons=document.createElement('div'),testResult=document.createElement('p'),scanResult=document.createElement('p');
 testLegend.id='test_title';testLegend.className='panel-title';testInfo.id='test_info';testInfo.className='edge-note';testButtons.className='test-buttons';testResult.id='test_result';testResult.setAttribute('role','status');
-const tests={ble_scan:['Bluetooth-scan (5 s)','Bluetooth scan (5 s)'],ble_fn1:['Bluetooth-functie 1 testen','Test Bluetooth function 1'],ble_fn2:['Bluetooth-functie 2 testen','Test Bluetooth function 2'],test_rising:['Test opgaande flank','Test rising edge'],test_falling:['Test neergaande flank','Test falling edge'],relay_pulse:['Test relaispuls','Test relay pulse'],relay_off:['Relais UIT','Relay OFF'],uplink:['LoRa-bericht sturen','Send LoRa message']};
+scanResult.id='scan_result';scanResult.className='edge-note';
+const tests={ble_scan:['Bluetooth-scan (5 s)','Bluetooth scan (5 s)'],ble_fn1:['Bluetooth-functie 1 testen','Test Bluetooth function 1'],ble_fn2:['Bluetooth-functie 2 testen','Test Bluetooth function 2'],test_rising:['Test opgaande flank','Test rising edge'],test_falling:['Test neergaande flank','Test falling edge'],relay_pulse:['Test relaispuls','Test relay pulse'],relay_off:['Relais UIT','Relay OFF'],uplink:['Nu verzenden (ACK)','Send now (ACK)'],join_now:['Nu aanmelden','Join now']};
 for(let i=3;i<=MAX_FUNCTIONS;i++)tests['ble_fn'+i]=['Bluetooth-functie '+i+' testen','Test Bluetooth function '+i];
 for(const id of Object.keys(tests)){const button=document.createElement('button');button.type='button';button.id='test_'+id;button.addEventListener('click',()=>runTest(id));testButtons.append(button);}
-testBox.dataset.page='status';testBox.append(testLegend,testInfo,testButtons,testResult);$('sections').append(testBox);
+testBox.dataset.page='status';testBox.append(testLegend,testInfo,testButtons,testResult,scanResult);$('sections').append(testBox);
 function card(id,value,detail,state='neutral'){
  $(id+'_label').textContent=statusLabels[id][lang];$(id+'_value').textContent=value;$(id+'_detail').textContent=detail;$('card_'+id).dataset.state=state;
+}
+const bleResults=[['Nog geen opdracht uitgevoerd.','No command executed yet.'],['Opdracht geslaagd.','Command succeeded.'],['Controleer MAC-adres en instellingen.','Check MAC address and settings.'],['Bluetooth kon niet starten.','Bluetooth could not start.'],['Doelapparaat niet gevonden.','Target device not found.'],['Verbinding mislukt.','Connection failed.'],['GATT-verbinding instellen mislukt.','GATT setup failed.'],['Eerste uitlezing mislukt.','Initial read failed.'],['Schrijven mislukt.','Write failed.'],['Terugleescontrole mislukt.','Readback failed.'],['Beveiliging mislukt.','Security failed.'],['Bluetooth bezet.','Bluetooth busy.'],['Geen geldig antwoord op de Bluetooth-opdracht.','No valid response to the Bluetooth command.']];
+const bleStages=[['',''],['Bluetooth starten','Bluetooth startup'],['Zoeken','Scanning'],['Verbinden','Connecting'],['PIN en versleuteling','PIN and encryption'],['Pakketgrootte afspreken','MTU negotiation'],['Services zoeken','Service discovery'],['Kenmerken zoeken','Characteristic discovery'],['Notificatieadressen zoeken','Descriptor discovery'],['Notificaties inschakelen','Enabling notifications'],['Protocolgegevens lezen','Reading protocol information'],['Protocol starten','Starting protocol'],['Wachten op verzendtoestemming','Waiting for TX credit'],['Apparaatinstanties lezen','Reading device instances'],['Abonneren op gegevens','Subscribing'],['Sessie actief houden','Session keepalive'],['Eerste register uitlezen','Initial register read'],['Opdracht schrijven','Writing command'],['Instelling teruglezen','Reading setting back'],['Uitgangstoestand controleren','Checking output state'],['Bluetooth afsluiten','Bluetooth shutdown']];
+function bleResultText(code){return (bleResults[code]||['Onbekend resultaat.','Unknown result.'])[lang];}
+function loraMetric(id,value,detail='',state='neutral'){
+ $('lora_'+id+'_label').textContent=loraMetrics[id][lang];$('lora_'+id+'_value').textContent=value;$('lora_'+id+'_detail').textContent=detail;$('lora_'+id+'_metric').dataset.state=state;
+}
+function loraProfile(c,slot){
+ if(!Number.isInteger(slot)||slot<0||slot>3)return T('Profiel —','Profile —');
+ return T('Profiel ','Profile ')+(slot+1)+': '+(c['net'+slot+'_name']||current?.['net'+slot+'_name']||'—')+(Number.isInteger(c.network_slot)&&slot!==c.network_slot?T(' (ander profiel)',' (other profile)'):'');
+}
+function loraAge(seconds){return Number.isFinite(seconds)&&seconds>=0?duration(seconds)+T(' geleden',' ago'):'—';}
+function showLoraDiagnostics(c){
+ $('lora_diagnostics_title').textContent=T('LoRa · laatste zendpoging en ontvangst','LoRa · last transmit attempt and reception');
+ const attempted=Number.isInteger(c.lora_tx_seq)&&c.lora_tx_seq>0,state=attempted?c.lora_tx_state:0;
+ const attempt=attempted?'#'+c.lora_tx_seq+' · '+loraProfile(c,c.lora_tx_slot)+' · '+loraAge(c.lora_tx_age_s):'';
+ const code=Number.isInteger(c.lora_tx_code)?'MAC '+c.lora_tx_code:'MAC —';
+ const accepted=[1,2,4].includes(state),rejected=state===3;
+ loraMetric('request',accepted?T('Geaccepteerd door radio','Accepted by radio'):rejected?T('Geweigerd door radio','Rejected by radio'):c.lora_pending?T('Wacht op radio','Waiting for radio'):'—',attempt+(rejected?' · '+code:''),rejected?'error':accepted?'ok':c.lora_pending?'attention':'neutral');
+ const txValues={1:T('Wacht op afronding','Waiting for completion'),2:T('TX voltooid','TX complete'),3:T('Niet gestart','Not started'),4:T('TX/RX-afrondingsfout','TX/RX completion error')};
+ let txDetail=T('Lokale TX sinds start: ','Local TX since boot: ')+(c.tx_count??'—');
+ if(state===4)txDetail+=' · '+code;
+ loraMetric('tx',txValues[state]||'—',txDetail,state===4?'error':state===2?'ok':state===1?'attention':'neutral');
+ const ack=attempted?c.lora_tx_ack:null;
+ const ackValues=[T('Niet gevraagd','Not requested'),T('Wacht op ACK','Waiting for ACK'),T('ACK ontvangen','ACK received'),T('Geen ACK ontvangen','No ACK received')];
+ loraMetric('ack',ackValues[ack]||'—',T('ACKs sinds start: ','ACKs since boot: ')+(c.lora_ack_count??'—'),ack===2?'ok':ack===1||ack===3?'attention':'neutral');
+ const rx=!!c.lora_rx_seen;
+ const rssi=rx&&Number.isFinite(c.lora_rssi_dbm)?c.lora_rssi_dbm+' dBm':'—';
+ const snr=rx&&Number.isFinite(c.lora_snr_db)?c.lora_snr_db+' dB':'—';
+ loraMetric('rx','RSSI '+rssi+' · SNR '+snr,rx?loraProfile(c,c.lora_rx_slot)+' · '+loraAge(c.lora_rx_age_s):T('Nog geen geldig bericht ontvangen.','No valid message received yet.'));
+ const actual=Number.isFinite(c.lora_tx_dbm)&&c.lora_tx_dbm!==-128?c.lora_tx_dbm+' dBm':'—';
+ loraMetric('power',actual,T('Opgeslagen maximum: ','Saved maximum: ')+(c.lora_max_dbm??c.tx_dbm??current?.tx_dbm??settingsDefaults.tx_dbm)+' dBm · '+T('Laatst ingestelde radiovermogen; geen meting. ADR/regio kunnen dit verlagen.','Last configured radio output; not a measurement. ADR/region may lower it.'));
+ const joinCode=Number.isInteger(c.lora_join_code)?'MAC '+c.lora_join_code:'MAC —';
+ const joinRequest=Number.isInteger(c.lora_join_request_code)?c.lora_join_request_code:-1,joinRejected=joinRequest>0;
+ const joinValue=joinRejected?T('Aanvraag geweigerd','Request rejected'):c.lora_join_seen?joinCode:joinRequest===0?T('Aanvraag geaccepteerd','Request accepted'):'—';
+ let joinDetail=c.lora_join_seen?loraProfile(c,c.lora_join_slot)+' · '+loraAge(c.lora_join_age_s):T('Nog geen aanmeldresultaat.','No join result yet.');
+ if(joinRequest>=0)joinDetail=T('Aanvraag MAC ','Request MAC ')+joinRequest+' · '+(c.lora_join_seen&&joinRejected?T('Laatste resultaat: ','Last result: ')+joinCode+' · ':'')+joinDetail;
+ loraMetric('join',joinValue,joinDetail,joinRejected?'error':'neutral');
+ const pending=[];
+ if(c.lora_pending)pending.push(T('Statusaanvraag wacht op radioacceptatie.','Status request is waiting for radio acceptance.'));
+ if(c.lora_join_pending)pending.push(T('Handmatige aanmelding staat in de wachtrij.','Manual join is queued.'));
+ $('lora_pending_note').textContent=pending.join(' ');$('lora_pending_note').hidden=!pending.length;
+ $('lora_delivery_note').textContent=T('Radioacceptatie en lokale TX bewijzen geen ontvangst door het netwerk. Een ACK bevestigt ontvangst; geen ACK bewijst niet dat de uplink verloren is. RSSI/SNR horen bij het laatste ontvangen bericht, niet bij je uplink.','Radio acceptance and local TX do not prove network reception. An ACK confirms reception; no ACK does not prove the uplink was lost. RSSI/SNR describe the last received message, not your uplink.');
 }
 function showStatus(c){
  statusData=c;
@@ -226,35 +291,48 @@ function showStatus(c){
  }
  const ns=c.network_slot,networkName=current?.['net'+ns+'_name']||T('Geen netwerk','No network');
  const states=[T('Uitgeschakeld','Disabled'),T('Wachten op aanmelding','Waiting to join'),T('Aanmelden','Joining'),T('Aangemeld','Joined'),T('TTN-wachttijd / joinbudget','TTN cooldown / join budget'),T('Veilig gestopt: opslag/teller controleren','Stopped safely: check storage/counter')];
- let networkDetail=networkName+' · '+T('Uplinks: ','Uplinks: ')+(c.tx_count??'—');
+ let networkDetail=networkName+' · '+T('Lokale TX: ','Local TX: ')+(c.tx_count??'—');
  if(c.network_preempt_s)networkDetail+=T(' · Voorkeur opnieuw over ',' · Preferred network retry in ')+duration(c.network_preempt_s);
  if(c.network_retry_s)networkDetail+=T(' · Volgende poging over ',' · Next attempt in ')+duration(c.network_retry_s);
  if(c.network_missed)networkDetail+=T(' · Gemiste controles: ',' · Missed checks: ')+c.network_missed;
  card('lora',states[c.network_state]||(c.joined?T('Aangemeld','Joined'):T('Niet aangemeld','Not joined')),networkDetail,c.joined?'ok':'attention');
- const resultText=[
-  T('Nog geen opdracht uitgevoerd.','No command executed yet.'),(current?.profile===3?T('Geslaagd: BatteryProtect-modus én uitgangstoestand teruggelezen.','Success: BatteryProtect mode and output state read back.'):current?.profile===1?T('Geslaagd: MPPT-regelmodus teruggelezen; geen meting van de uitgang.','Success: MPPT control mode read back; not an output measurement.'):T('GATT-opdracht geslaagd. Alleen een functie met teruglezen controleert de waarde.','GATT command succeeded. Only a readback function verifies the value.')),
-  T('Controleer MAC-adres en instellingen.','Check MAC address and settings.'),T('Bluetooth-firmware ontbreekt of Bluetooth start niet.','Bluetooth firmware is missing or failed to start.'),
-  T('Doelapparaat niet gevonden.','Target device not found.'),T('Verbinding mislukt.','Connection failed.'),T('GATT niet gevonden.','GATT not found.'),
-  T('Eerste uitlezing mislukt.','Initial read failed.'),T('Schrijven mislukt.','Write failed.'),T('Terugleescontrole mislukt.','Readback failed.'),
-  T('Beveiliging mislukt.','Security failed.'),T('Bluetooth bezet.','Bluetooth busy.'),T('ESP reageert niet.','ESP not responding.')
- ];
+ showLoraDiagnostics(c);
  const target=(current?.victron_mac||'').toUpperCase(),configured=!!target&&target!=='00:00:00:00:00:00';
  const sameTarget=target===(session?.ble_target_mac||'').toUpperCase();
  const targetState=sameTarget?session?.ble_target_state||0:0;
  const targetTexts=[T('Nog niet gezocht','Not checked yet'),T('Doelapparaat gevonden','Target device found'),T('Doelapparaat niet gevonden','Target device not found'),T('Zoeken mislukt','Check failed')];
  let bleValue=!c.ble_available?T('Niet beschikbaar','Unavailable'):c.ble_pending?T('Opdracht bezig','Command pending'):!configured?T('MAC niet ingesteld','MAC not configured'):targetTexts[targetState]||targetTexts[0];
+ const bleFailed=c.ble_result>=2,bleSucceeded=c.ble_result===1;
+ if(c.ble_available&&!c.ble_pending&&configured){if(bleFailed)bleValue=T('Laatste opdracht mislukt','Last command failed');else if(bleSucceeded)bleValue=T('Laatste opdracht geslaagd','Last command succeeded');}
  let bleDetail=!configured?T('Stel het MAC-adres in bij Bluetooth.','Set the target MAC address under Bluetooth.'):target+(targetState?T(' · laatste controle ',' · last checked ')+duration(session.ble_target_age_s||0)+T(' geleden.',' ago.'):T(' · gebruik Bluetooth-scan om te zoeken.',' · use Bluetooth scan to search.'));
- bleDetail+=' '+(resultText[c.ble_result]||T('Onbekend resultaat.','Unknown result.'));
- if(targetState===1)bleDetail+=' '+T('Gevonden is geen bevestiging van pairing of schakelen.','Discovery does not confirm pairing or switching.');
- card('ble',bleValue,bleDetail,!c.ble_available?'error':targetState===1?'ok':targetState>1?'attention':'neutral');
+ if(!c.ble_pending){
+  bleDetail+=' '+(bleSucceeded&&[1,3].includes(current?.profile)?T('Modus en uitgangsstatus teruggelezen.','Mode and output state read back.'):bleResultText(c.ble_result));
+  if(bleFailed&&bleStages[c.ble_stage]?.[lang])bleDetail+=T(' Stap: ',' Stage: ')+bleStages[c.ble_stage][lang]+(c.ble_detail?' ('+c.ble_detail+')':'')+'.';
+  if(bleFailed&&Number.isInteger(c.ble_instance)&&c.ble_instance<24)bleDetail+=' Instance: '+c.ble_instance+'.';
+ }
+ if(targetState===1&&!bleSucceeded&&!bleFailed)bleDetail+=' '+T('Nog geen geslaagde schakelopdracht.','No successful switching command yet.');
+ card('ble',bleValue,bleDetail,!c.ble_available?'error':c.ble_pending?'neutral':bleFailed?'error':bleSucceeded?'ok':targetState>1?'attention':'neutral');
  card('input',!c.input_enabled?T('Uitgeschakeld','Disabled'):c.input_active?T('Spanning aanwezig','Voltage present'):T('Spanning afwezig','Voltage absent'),
   T('Flanken sinds start: ','Edges since boot: ')+'↑ '+(c.rising_count??'—')+' / ↓ '+(c.falling_count??'—')+(c.input_overflow?T(' · wachtrij overgelopen: ',' · queue overflow: ')+c.input_overflow:''),c.input_overflow?'error':c.input_enabled&&c.input_active?'ok':'neutral');
  card('output',!c.relay_enabled?T('Uitgeschakeld','Disabled'):c.relay_pulsing?T('Puls actief','Pulse active'):c.relay_on?T('AAN','ON'):T('UIT','OFF'),
   T('Aangestuurde stand · geen contactterugmelding.','Commanded state · no contact feedback.'),c.relay_enabled&&c.relay_on?'ok':'neutral');
- const clients=Number.isInteger(session?.wifi_clients)?session.wifi_clients:null;
- const rssi=(session?.wifi_rssi_dbm||[]).filter(x=>Number.isInteger(x)&&x<0&&x>=-127);
- const wifiDetail=[current?.wifi_ssid||'',clients===null?'':clients+(clients===1?T(' verbonden client',' connected client'):T(' verbonden clients',' connected clients')),rssi.length?'RSSI '+rssi.join(' / ')+' dBm':''].filter(Boolean).join(' · ');
- card('wifi',clients===0?T('Geen clients','No clients'):'Connected',wifiDetail,clients===0?'neutral':'ok');
+ const wifi={...c,...session},phase=wifi.wifi_phase,clients=Number.isInteger(wifi.wifi_clients)?wifi.wifi_clients:null;
+ const routerConnected=!!wifi.wifi_sta_connected&&typeof wifi.wifi_sta_ip==='string'&&wifi.wifi_sta_ip!==''&&wifi.wifi_sta_ip!=='0.0.0.0';
+ const rssi=(wifi.wifi_rssi_dbm||[]).filter(x=>Number.isInteger(x)&&x<0&&x>=-127);
+ const wifiStates={ap:clients>0?'Connected':T('Accesspoint actief','Access point active'),delay:T('Router opstarten','Waiting for router'),connecting:T('Router verbinden','Connecting to router'),connected:routerConnected?'Connected':T('Wacht op DHCP','Waiting for DHCP'),fallback:T('AP-terugval actief','AP fallback active'),off:T('WiFi uit','WiFi off')};
+ const wifiDetail=[];
+ if(wifi.wifi_sta_ssid)wifiDetail.push(wifi.wifi_sta_ssid);
+ if(routerConnected)wifiDetail.push('DHCP IP '+wifi.wifi_sta_ip);
+ if(routerConnected&&Number.isInteger(wifi.wifi_sta_rssi_dbm))wifiDetail.push('RSSI '+wifi.wifi_sta_rssi_dbm+' dBm');
+ if(phase!=='off'&&(wifi.wifi_ap_active||phase==='ap'||!phase)){
+  wifiDetail.push('AP: '+(current?.wifi_ssid||'—'));
+  if(wifi.wifi_ap_ip)wifiDetail.push('AP IP '+wifi.wifi_ap_ip);
+  if(clients!==null)wifiDetail.push(clients+(clients===1?T(' AP-client',' AP client'):T(' AP-clients',' AP clients')));
+  if(rssi.length)wifiDetail.push('AP RSSI '+rssi.join(' / ')+' dBm');
+ }
+ if(wifi.wifi_next_s>0)wifiDetail.push((phase==='connecting'?T('Poging nog ','Attempt remaining '):T('Volgende poging over ','Next attempt in '))+duration(wifi.wifi_next_s));
+ if(phase==='off')wifiDetail.push(T('Geen AP-terugval.','No AP fallback.'));
+ card('wifi',wifiStates[phase]||(wifi.wifi_mode===1?(routerConnected?'Connected':T('Wacht op DHCP','Waiting for DHCP')):clients===0?T('Geen clients','No clients'):'Connected'),wifiDetail.join(' · '),['delay','connecting','fallback'].includes(phase)||phase==='connected'&&!routerConnected?'attention':phase==='off'||clients===0&&phase!=='connected'?'neutral':'ok');
  card('uptime',duration(c.uptime_s||0),T('Sinds de laatste herstart','Since the last restart'),'ok');
  updateFirmware();renderPower();
  $('status').classList.remove('stale');
@@ -278,7 +356,7 @@ function translate(){
  $('edit_identity_label').textContent=T('DevEUI wijzigen','Edit DevEUI');
  $('input_note').textContent=T('K1/K2: 12–24 V DC · 5 V niet gespecificeerd · minimaal 80 ms stabiel.','K1/K2: 12–24 V DC · 5 V not specified · stable for at least 80 ms.');
  $('test_title').textContent=T('Testen & handmatig bedienen','Tests & manual controls');
- $('test_info').textContent=T('Tests gebruiken de OPGESLAGEN regels en kunnen echt schakelen. Een flanktest simuleert alleen de gebeurtenis: de fysieke ingang en flanktellers blijven ongewijzigd. Sla gewijzigde regels eerst op.','Tests use the SAVED rules and can switch real outputs. Edge tests simulate only the event: physical input and edge counters remain unchanged. Save changed rules first.');
+ $('test_info').textContent=T('Tests gebruiken de OPGESLAGEN regels en kunnen echt schakelen. Flanktests voeren de acties direct uit, zonder minimale AAN-/UIT-tijd of actievertraging; fysieke ingang en flanktellers blijven ongewijzigd. Sla gewijzigde regels eerst op. LoRa-knoppen: eenmalige directe aanvraag; een lopende radioactie wordt eerst afgerond.','Tests use the SAVED rules and can switch real outputs. Edge tests run the actions immediately, without minimum ON/OFF duration or action delay; physical input and edge counters remain unchanged. Save changed rules first. LoRa buttons: one-time direct request; an active radio operation finishes first.');
  for(const [id,labels]of Object.entries(tests))$('test_'+id).textContent=labels[lang];
  $('footer').textContent='© 2026 Roel Broersma';
  translateExtra();visibility();
@@ -291,6 +369,11 @@ function visibility(){
  const io=+$('io_board').value;
  if(io!==1)$('input_enabled').checked=false;if(io===0)$('relay_enabled').checked=false;
  const input=io===1&&$('input_enabled').checked,relay=io!==0&&$('relay_enabled').checked;
+ const wifiMode=+$('wifi_mode').value,router=wifiMode===1;
+ for(const id of ['sta_ssid','sta_password','sta_delay_s','sta_timeout_s'])$('field_'+id).hidden=!router;
+ $('sta_ssid').required=router;$('sta_password').required=router&&(current?.sta_password_set===false||current?.sta_password_set===0);
+ $('wifi_mode_note').textContent=wifiMode===2?T('WiFi blijft uit, ook bij triggers of routeruitval. Gebruik USB om deze instelling later te wijzigen.','WiFi stays off, including on triggers or router failure. Use USB to change this setting later.'):router?T('Eerst opstarttijd + router/DHCP proberen, zonder AP. Pas bij mislukking of verbindingsverlies: AP-terugval op 192.168.4.1. Na DHCP-succes gaat AP uit; open het toegewezen IP-adres van dit board.','First startup delay + router/DHCP attempt, without AP. Only after failure or connection loss: AP fallback at 192.168.4.1. Once DHCP succeeds AP switches off; open the IP address assigned to this board.'):T('Verbind rechtstreeks met het accesspoint en open 192.168.4.1.','Connect directly to the access point and open 192.168.4.1.');
+ $('tx_dbm_value').textContent=$('tx_dbm').value+' dBm';
  $('field_input_enabled').hidden=io!==1;
  $('field_relay_enabled').hidden=io===0;
  $('field_relay_pulse_ms').hidden=!relay;
@@ -307,7 +390,8 @@ function visibility(){
  $('profile_note').textContent=T('100A-variant (A3B1). AAN/UIT via PIN-pairing, met controle van de echte uitgangsstatus. Een actieve beveiliging kan inschakelen tegenhouden.','100A variant (A3B1). PIN-paired ON/OFF with actual output-state verification. Active protection may prevent switching on.');
  if(!generic)$('smp').value='1';$('smp').disabled=!generic;
  $('field_instance').hidden=generic||battery||!ble;
- if(battery)$('instance').value='0';
+ // BatteryProtect's driver selects instance0 itself. Do not overwrite the
+ // MPPT instance merely by displaying another profile or switching tabs.
  for(const id of ['smp','ble_attempts'])$('field_'+id).hidden=!ble;
  $('field_victron_pin').hidden=!ble||$('smp').value!=='1';
  for(let i=1;i<=MAX_FUNCTIONS;i++){
@@ -345,6 +429,9 @@ function visibility(){
   $(edge+'_relay').disabled=!$('input_enabled').checked||!$('relay_enabled').checked;
   $('field_'+edge+'_ble').hidden=!ble;
   $('field_'+edge+'_relay').hidden=!relay;
+  for(const kind of ['hold_s','delay_s']){$('field_'+edge+'_'+kind).hidden=!input;$(edge+'_'+kind).disabled=!input;}
+  const hold=+$(edge+'_hold_s').value,delay=+$(edge+'_delay_s').value;
+  $(edge+'_timing_note').textContent=(hold===0&&delay===0?T('Beide 0: direct na debounce (80 ms).','Both 0: immediately after debounce (80 ms).'):hold+' s + '+delay+' s = '+(hold+delay)+' s '+T('onafgebroken ','continuously ')+(edge==='rise'?T('AAN.','ON.'):T('UIT.','OFF.')))+' '+T('Eén uitvoering; een tegengestelde flank vóór uitvoering annuleert de actie.','One execution; an opposite edge before execution cancels the action.');
  }
  // Hide inactive controls and exclude their validation; switching tabs must not disable active settings.
  for(const f of F){
@@ -366,13 +453,14 @@ async function refreshStatus(){
 }
 async function runTest(command){
  if(!ready||saving)return;
- if(!confirm(T('Deze test gebruikt de opgeslagen instellingen en kan de LOAD of het relais echt schakelen. Doorgaan?','This test uses saved settings and can switch LOAD or the relay. Continue?')))return;
+ const lora=command==='uplink'||command==='join_now';
+ if(!lora&&!confirm(T('Deze test gebruikt de opgeslagen instellingen en kan de LOAD of het relais echt schakelen. Doorgaan?','This test uses saved settings and can switch LOAD or the relay. Continue?')))return;
  saving=true;$('test_result').textContent=T('Test aanvragen…','Requesting test…');
  try{
   const r=await fetch('/action',{method:'POST',headers:{'X-LoRaBLE':session?.token||'1','Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({command}),signal:AbortSignal.timeout(15000)});
   const result=await r.json();if(!r.ok||!result.ok)throw Error(result.code);
-  $('test_result').textContent=T('Test aangevraagd. Controleer de status; dit is nog geen bevestiging dat Bluetooth is geslaagd.','Test requested. Check status; this does not confirm Bluetooth success.');
- }catch{$('test_result').textContent=T('Test niet bevestigd. Controleer de verbinding en of ingang/relais zijn ingeschakeld in de opgeslagen instellingen.','Test not confirmed. Check connection and whether input/relay are enabled in saved settings.');}
+  $('test_result').textContent=command==='uplink'?T('LoRa-test aangevraagd (met bevestiging). Alleen de aanvraag staat in de wachtrij; nog geen radioacceptatie, lokale TX of netwerk-ACK. Bekijk de LoRa-status hierboven.','LoRa test requested (with acknowledgement). Only the request is queued; no radio acceptance, local TX or network ACK is confirmed yet. Check the LoRa status above.'):command==='join_now'?T('Aanmelding aangevraagd. Dit bevestigt alleen de wachtrij, niet dat het netwerk is aangemeld. Bekijk de LoRa-status hierboven.','Join requested. This confirms only the queue, not a successful network join. Check the LoRa status above.'):T('Test aangevraagd. Controleer de status; dit is nog geen bevestiging dat Bluetooth is geslaagd.','Test requested. Check status; this does not confirm Bluetooth success.');
+ }catch{$('test_result').textContent=lora?T('LoRa-aanvraag niet bevestigd. Controleer de verbinding en opgeslagen netwerkprofielen.','LoRa request not confirmed. Check the connection and saved network profiles.'):T('Test niet bevestigd. Controleer de verbinding en of ingang/relais zijn ingeschakeld in de opgeslagen instellingen.','Test not confirmed. Check connection and whether input/relay are enabled in saved settings.');}
  finally{saving=false;await refreshStatus();}
 }
 for(const [id,value]of [['lang_nl',0],['lang_en',1]])$(id).addEventListener('click',()=>{$('language').value=value;translate();updateDirty();});
@@ -393,7 +481,9 @@ $('add_function').onclick=()=>{if(!saving&&functionCount<MAX_FUNCTIONS){function
 $('remove_function').onclick=()=>{if(functionCount>1&&confirm(T('Laatste functie en haar koppelingen verwijderen? Dit wordt pas na opslaan toegepast.','Remove the last function and its routes? Applied only after saving.'))){
  $('fn'+functionCount+'_kind').value='0';$('dl_fn'+functionCount).checked=false;for(const e of ['rise','fall'])if(+$(e+'_ble').value===functionCount)$(e+'_ble').value='0';functionCount--;visibility();updateDirty();
 }};
-for(const id of ['region','rx2_custom','input_enabled','relay_enabled','load_enabled','io_board','profile','fn1_kind','fn2_kind','fn1_name','fn2_name','smp','wifi_input','wifi_lora','class','status_min'])$(id).addEventListener('change',visibility);
+for(const id of ['region','rx2_custom','input_enabled','relay_enabled','load_enabled','io_board','profile','fn1_kind','fn2_kind','fn1_name','fn2_name','smp','wifi_input','wifi_lora','class','status_min','wifi_mode'])$(id).addEventListener('change',visibility);
+for(const id of ['tx_dbm','rise_hold_s','rise_delay_s','fall_hold_s','fall_delay_s'])$(id).addEventListener('input',visibility);
+$('profile').addEventListener('change',()=>{if($('profile').value==='1'&&$('instance').value==='0')$('instance').value='3';visibility();});
 $('dev_eui').readOnly=true;$('edit_identity').addEventListener('change',()=>{$('dev_eui').readOnly=!$('edit_identity').checked;if($('edit_identity').checked)$('dev_eui').focus();else $('dev_eui').value=current?.dev_eui||'';visibility();});
 let classSuggested=false;
 const classNotice=document.createElement('p');classNotice.id='class_notice';classNotice.className='panel-note';classNotice.setAttribute('role','status');$('field_class').append(classNotice);
@@ -402,14 +492,16 @@ $('victron_mac').pattern='([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}';
 for(const id of ['dev_eui','join_eui'])$(id).pattern='[0-9A-Fa-f]{16}';
 $('app_key').pattern='[0-9A-Fa-f]{32}';$('victron_pin').pattern='[0-9]{6}';$('victron_pin').inputMode='numeric';
 $('wifi_ssid').pattern='[ -~]{1,32}';$('wifi_password').pattern='[!-~]{12,63}';
+$('sta_ssid').pattern='[ -~]{0,32}';$('sta_password').pattern='[ -~]{8,63}';
 
 function applyFields(c){
+ c={...settingsDefaults,...c};
  functionCount=c.function_count||2;
  networkOrder=Array.from({length:4},(_,i)=>c['net'+i+'_order']??i);
  if(new Set(networkOrder).size!==4||networkOrder.some(n=>!Number.isInteger(n)||n<0||n>3))networkOrder=[0,1,2,3];
  $('edit_identity').checked=false;$('dev_eui').readOnly=true;
  for(const f of F){
-  if(f.length===3||f[3]==='password'||/^(rise|fall|dl|wifi_input$|wifi_hold$|wifi_lora$)_?/.test(f[0])&&['wifi_input_min','wifi_lora_min'].indexOf(f[0])<0)continue;
+  if(f.length===3||f[3]==='password'||/^(?:(?:rise|fall)_(?:lora|ble|relay)$|dl_|wifi_input$|wifi_hold$|wifi_lora$)/.test(f[0]))continue;
   const el=$(f[0]);if(f[3]==='checkbox')el.checked=!!c[f[0]];else el.value=c[f[0]]??'';
  }
  $('language').value=c.language;fillEdge('rise',c.rising_actions,c.rising_fn);fillEdge('fall',c.falling_actions,c.falling_fn);
@@ -423,7 +515,7 @@ async function loadConfig(){
   const sr=await fetch('/session',{cache:'no-store',signal:AbortSignal.timeout(15000)});
   if(!sr.ok)throw Error();session=await sr.json();
   const r=await fetch('/config',{cache:'no-store',signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error();
-  current=await r.json();for(const f of F)if(f[3]==='password')$(f[0]).value='';applyFields(current);baseline=formSignature();ready=true;updateDirty();
+  current={...settingsDefaults,...await r.json()};for(const f of F)if(f[3]==='password')$(f[0]).value='';applyFields(current);baseline=formSignature();ready=true;updateDirty();
   refreshStatus();refreshLog();statusTimer=setInterval(refreshStatus,5000);
  }catch{$('connection_note').textContent=T('Instellingen konden niet worden geladen. Controleer WiFi en herlaad de pagina.','Settings could not be loaded. Check WiFi and reload.');}
 }
@@ -468,7 +560,9 @@ async function saveSettings(){
   if(!r.ok||!result.ok){$('result').textContent=T('Niet opgeslagen. Controleer de waarden.','Not saved. Check the values.')+' ('+result.code+')';saving=false;updateDirty();return false;}
   if(result.code==='unchanged'){baseline=formSignature();saving=false;updateDirty();$('result').textContent=T('Instellingen zijn al opgeslagen.','These settings are already saved.');return true;}
   clearInterval(statusTimer);
-  $('result').textContent=T('Opgeslagen. Het board herstart. Verbind opnieuw met “','Saved. The board is restarting. Reconnect to “')+$('wifi_ssid').value+T('” en open http://192.168.4.1/.','” and open http://192.168.4.1/.');
+  const wifiMode=+$('wifi_mode').value;
+  $('result').textContent=wifiMode===2?T('Opgeslagen. Het board herstart met WiFi uit, zonder AP-terugval. Gebruik USB voor verdere instellingen.','Saved. The board restarts with WiFi off, without AP fallback. Use USB for further setup.'):wifiMode===1?T('Opgeslagen. Het board herstart en probeert router/DHCP na de opstarttijd, eerst zonder AP. Open daarna het toegewezen IP-adres van dit board. Pas als de verbindingspoging mislukt verschijnt AP-terugval op 192.168.4.1 binnen het WiFi-venster.','Saved. The board restarts and tries router/DHCP after the startup delay, initially without AP. Then open the IP address assigned to this board. Only if the connection attempt fails does AP fallback appear at 192.168.4.1 within the WiFi window.'):T('Opgeslagen. Het board herstart. Verbind opnieuw met “','Saved. The board is restarting. Reconnect to “')+$('wifi_ssid').value+T('” en open http://192.168.4.1/.','” and open http://192.168.4.1/.');
+  if(wifiMode===2){dirty=false;ready=false;saving=false;updateDirty();return true;}
   dirty=false;watchRestart(session?.token,'result');return true;
  }catch{
   $('result').textContent=T('Verbinding onderbroken: opslag niet bevestigd. Verbind opnieuw en controleer de instellingen.','Connection lost: saving not confirmed. Reconnect and check settings.');saving=false;updateDirty();return false;
@@ -476,14 +570,14 @@ async function saveSettings(){
 }
 
 function serialize(){
- const body=new URLSearchParams(new FormData($('form')));body.set('schema','9');body.set('expected_revision',current.revision);
+ const body=new URLSearchParams(new FormData($('form')));body.set('schema',SETTINGS_SCHEMA);body.set('expected_revision',current.revision);
  for(let i=0;i<4;i++){body.set('net'+i+'_order',networkOrder[i]);body.set('net'+i+'_enabled',$('net'+i+'_enabled').checked?'1':'0');}
  // The STM validates a complete record. Keep inactive settings, using saved values
  // if an unfinished numeric edit was hidden by turning its feature off.
  for(const f of F){
   if(f.length===3||f[3]==='checkbox'||f[3]==='password'||!$(f[0]).disabled)continue;
   let v=$(f[0]).value;
-  if(f[3]==='number'&&(!v||!Number.isInteger(+v)||+v<f[4][0]||+v>f[4][1]))v=current?.[f[0]]??f[4][0];
+  if((f[3]==='number'||f[3]==='range')&&(!v||!Number.isInteger(+v)||+v<f[4][0]||+v>f[4][1]))v=current?.[f[0]]??f[4][0];
   if(f[3]==='text'&&v.length<f[4][0])v=current?.[f[0]]||T('Functie','Function');
   body.set(f[0],v);
  }
@@ -611,10 +705,10 @@ function translateExtra(){
  for(const [input,label]of [['import','import_name'],['ota_file','ota_name']])$(label).textContent=$(input).files[0]?.name||T('Geen bestand gekozen','No file selected');
  updateFirmware();renderPower();updateDirty();
 }
-const backupKeys=F.filter(f=>f.length>3&&f[3]!=='password').map(f=>f[0]).filter(id=>!['dev_eui','join_eui'].includes(id)&&!/^(rise|fall|dl)_/.test(id)&&!['wifi_input','wifi_hold','wifi_lora'].includes(id)).concat(['language','rising_actions','falling_actions','wifi_triggers','downlink_allowed','function_count','rising_fn','falling_fn','downlink_functions',...Array.from({length:4},(_,i)=>'net'+i+'_order')]);
+const backupKeys=F.filter(f=>f.length>3&&f[3]!=='password').map(f=>f[0]).filter(id=>!['dev_eui','join_eui'].includes(id)&&!/^(?:(?:rise|fall)_(?:lora|ble|relay)$|dl_)/.test(id)&&!['wifi_input','wifi_hold','wifi_lora'].includes(id)).concat(['language','rising_actions','falling_actions','wifi_triggers','downlink_allowed','function_count','rising_fn','falling_fn','downlink_functions',...Array.from({length:4},(_,i)=>'net'+i+'_order')]);
 function portable(c){const out={};for(const k of backupKeys)if(k in c)out[k]=c[k];return out;}
 $('export').onclick=()=>{
- if(!ready||saving)return;const file={format:'LoRaBLE Remote',schema:9,settings:portable(current)};
+ if(!ready||saving)return;const file={format:'LoRaBLE Remote',schema:SETTINGS_SCHEMA,settings:portable(current)};
  const url=URL.createObjectURL(new Blob([JSON.stringify(file,null,2)],{type:'application/json'}));
  const a=document.createElement('a');a.href=url;a.download='LoRaBLE-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
@@ -629,16 +723,18 @@ $('import').onchange=async()=>{
   const file=$('import').files[0];if(!file||file.size>16384)throw Error('file_size');
   const data=JSON.parse(await file.text());
   if(selection!==importSelection)return;
-  if(data.format!=='LoRaBLE Remote'||![8,9].includes(data.schema)||!data.settings||Array.isArray(data.settings))throw Error('schema');
+  if(data.format!=='LoRaBLE Remote'||![8,9,SETTINGS_SCHEMA].includes(data.schema)||!data.settings||typeof data.settings!=='object'||Array.isArray(data.settings))throw Error('schema');
   if(data.schema===8)for(const key of backupKeys.filter(k=>k.startsWith('net')))data.settings[key]=current[key];
+  if(data.schema<SETTINGS_SCHEMA)for(const [key,value]of Object.entries(settingsDefaults))if(!(key in data.settings))data.settings[key]=value;
   const keys=Object.keys(data.settings);
   if(keys.some(k=>!backupKeys.includes(k))||backupKeys.some(k=>!(k in data.settings)))throw Error('unknown_or_missing_fields');
   for(const f of F.filter(f=>f.length>3&&keys.includes(f[0]))){
    const v=data.settings[f[0]],type=f[3],r=f[4];
    if(type==='select'&&!r.some(o=>String(o[0])===String(v)))throw Error(f[0]);
-   if((type==='number'||type==='checkbox')&&(!Number.isInteger(v)||v<(type==='checkbox'?0:r[0])||v>(type==='checkbox'?1:r[1])))throw Error(f[0]);
+   if((type==='number'||type==='range'||type==='checkbox')&&(!Number.isInteger(v)||v<(type==='checkbox'?0:r[0])||v>(type==='checkbox'?1:r[1])))throw Error(f[0]);
    if(type==='text'&&(typeof v!=='string'||v.length<r[0]||v.length>r[1]))throw Error(f[0]);
   }
+  if(+data.settings.wifi_mode===1&&!data.settings.sta_ssid)throw Error('sta_ssid');
   for(const [key,max]of [['rising_actions',127],['falling_actions',127],['wifi_triggers',7],['downlink_allowed',31],['function_count',10],['rising_fn',10],['falling_fn',10],['downlink_functions',1023]])
    if(!Number.isInteger(data.settings[key])||data.settings[key]<0||data.settings[key]>max)throw Error(key);
   const order=Array.from({length:4},(_,i)=>data.settings['net'+i+'_order']);
@@ -673,7 +769,8 @@ $('reboot').onclick=async()=>{
 };
 async function watchRestart(previousToken,resultId){
  await new Promise(r=>setTimeout(r,4000));
- const until=Date.now()+90000;
+ const routerMode=$('wifi_mode').value==='1';
+ const until=Date.now()+Math.max(90,routerMode?+$('sta_delay_s').value + +$('sta_timeout_s').value + 30:0)*1000;
  while(Date.now()<until){
   try{
    const r=await fetch('/session',{cache:'no-store',signal:AbortSignal.timeout(3000)});
@@ -685,17 +782,17 @@ async function watchRestart(previousToken,resultId){
   }catch{}
   await new Promise(r=>setTimeout(r,2000));
  }
- $(resultId).textContent=T('Verbind opnieuw met de WiFi van het apparaat en herlaad deze pagina.','Reconnect to the device WiFi and reload this page.');
+ $(resultId).textContent=routerMode?T('Verbind met je router en open het DHCP-adres van het board. Alleen als router/DHCP niet lukt, verschijnt AP-terugval op 192.168.4.1 na de ingestelde wachttijden.','Connect to your router and open the board’s DHCP address. Only if router/DHCP fails does AP fallback appear at 192.168.4.1 after the configured waits.'):T('Verbind opnieuw met de WiFi van het apparaat en herlaad deze pagina.','Reconnect to the device WiFi and reload this page.');
 }
 const eventLabels=[
- ['Onbekend','Unknown'],['Opgestart','Boot'],['Ingang opgaand','Input rising'],['Ingang neergaand','Input falling'],['LoRa-opdracht','LoRa command'],['Test opgaand','Test rising'],['Test neergaand','Test falling'],['Handmatige actie','Manual action'],['Bluetooth-resultaat','Bluetooth result'],['LoRa aangemeld (1/0)','LoRa joined (1/0)'],['Uplink verstuurd','Uplink sent'],['Relais AAN','Relay ON'],['Relais UIT','Relay OFF'],['Instellingen opgeslagen','Settings saved']
+ ['Onbekend','Unknown'],['Opgestart','Boot'],['Ingang opgaand','Input rising'],['Ingang neergaand','Input falling'],['LoRa-opdracht','LoRa command'],['Test opgaand','Test rising'],['Test neergaand','Test falling'],['Handmatige actie','Manual action'],['Bluetooth-resultaat','Bluetooth result'],['LoRa aangemeld (1/0)','LoRa joined (1/0)'],['Lokale LoRa-TX voltooid (geen ACK-bewijs)','Local LoRa TX complete (not proof of ACK)'],['Relais AAN','Relay ON'],['Relais UIT','Relay OFF'],['Instellingen opgeslagen','Settings saved']
 ];
-for(const [code,nl,en]of [[20,'Netwerk aanmelden','Network join attempt'],[21,'Netwerk aangemeld','Network joined'],[22,'Netwerk aanmelding mislukt','Network join failed'],[23,'Voorkeursnetwerk opnieuw proberen','Retry preferred network'],[24,'Netwerk veilig gestopt: opslag','Network stopped safely: storage'],[25,'Netwerkcontrole bevestigd','Network health acknowledged'],[26,'Netwerkcontrole gemist','Network health check missed']])eventLabels[code]=[nl,en];
+for(const [code,nl,en]of [[20,'Netwerk aanmelden','Network join attempt'],[21,'Netwerk aangemeld','Network joined'],[22,'Netwerk aanmelding mislukt','Network join failed'],[23,'Voorkeursnetwerk opnieuw proberen','Retry preferred network'],[24,'Netwerk veilig gestopt: opslag','Network stopped safely: storage'],[25,'Netwerkcontrole bevestigd','Network health acknowledged'],[26,'Netwerkcontrole gemist','Network health check missed'],[30,'LoRa-aanvraag geaccepteerd door radio','LoRa request accepted by radio'],[31,'LoRa-aanvraag geweigerd door radio','LoRa request rejected by radio'],[32,'LoRa TX/RX-afrondingsfout','LoRa TX/RX completion error'],[33,'LoRa netwerk-ACK ontvangen','LoRa network ACK received'],[34,'Geen LoRa netwerk-ACK ontvangen','No LoRa network ACK received'],[35,'Geldig LoRa-bericht ontvangen','Valid LoRa message received'],[36,'LoRa aanmeldresultaat','LoRa join result']])eventLabels[code]=[nl,en];
 async function refreshLog(){
  try{const r=await fetch('/log',{cache:'no-store',signal:AbortSignal.timeout(9000)});if(!r.ok)throw Error();const data=await r.json();
  $('log_rows').replaceChildren();
- for(const [seconds,code,value]of data.entries.slice().reverse()){const li=document.createElement('li');li.textContent=duration(seconds)+' · '+(eventLabels[code]||eventLabels[0])[lang]+' · '+value;$('log_rows').append(li);}
- const sr=await fetch('/session',{cache:'no-store'});if(sr.ok){const next=await sr.json();session=next;updateFirmware();$('test_result').textContent=T('Laatste Bluetooth-scan: ','Last Bluetooth scan: ')+(next.ble_advertisements??0)+T(' advertenties; status ',' advertisements; status ')+(next.ble_scan_status??'—');}
+ for(const [seconds,code,value]of data.entries.slice().reverse()){const li=document.createElement('li');const label=code===9?(value?T('LoRa aangemeld','LoRa joined'):T('LoRa niet aangemeld','LoRa not joined')):(eventLabels[code]||eventLabels[0])[lang];const detail=code===8?bleResultText(value)+' ('+value+')':code===9?'':[32,36].includes(code)?'MAC '+(Number(value)|0):[30,31,33,34].includes(code)?'#'+value:code===35?T('Profiel ','Profile ')+value:String(value);li.textContent=duration(seconds)+' · '+label+(detail?' · '+detail:'');$('log_rows').append(li);}
+ const sr=await fetch('/session',{cache:'no-store'});if(sr.ok){const next=await sr.json();session=next;updateFirmware();$('scan_result').textContent=T('Laatste Bluetooth-scan: ','Last Bluetooth scan: ')+(next.ble_advertisements??'—')+T(' advertenties; status ',' advertisements; status ')+(next.ble_scan_status??'—');}
  }catch{$('log_rows').textContent=T('Log niet beschikbaar.','Log unavailable.');}
 }
 $('log_refresh').onclick=refreshLog;

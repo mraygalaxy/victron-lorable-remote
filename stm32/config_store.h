@@ -49,9 +49,14 @@ struct RuntimeConfig
     uint8_t networkOrder[MAX_NETWORKS];
     uint8_t networksInitialized; // Old firmware migrates the existing RUI tuple once.
     uint16_t networkHealthMinutes; // 0 disabled; TTN is clamped to at least 240 min.
+    uint8_t loraTxDbm; // Configured output ceiling, ADR/regional rules may lower it.
+    uint8_t wifiMode; // 0 local AP, 1 router with AP fallback, 2 radio off.
+    char wifiStaSsid[33], wifiStaPassword[64];
+    uint16_t wifiStaDelaySeconds, wifiStaTimeoutSeconds;
+    uint16_t edgeHoldSeconds[2], edgeDelaySeconds[2]; // 0 rising, 1 falling.
 };
 
-static const size_t RUNTIME_CONFIG_WIRE_SIZE = 1212;
+static const size_t RUNTIME_CONFIG_WIRE_SIZE = 1323;
 
 struct PendingLorawanCredentials
 {

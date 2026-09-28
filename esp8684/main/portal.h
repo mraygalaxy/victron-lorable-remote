@@ -6,6 +6,7 @@
 
 #include "app_model.h"
 #include "protocol.h"
+#include "wifi_client_policy.h"
 void portal_receive_frame(const protocol_frame_t *frame);
 #include "esp_err.h"
 
@@ -46,8 +47,26 @@ typedef struct {
     portal_submit_config_fn submit_config;
 } portal_hooks_t;
 
+typedef struct {
+    uint8_t mode;
+    uint16_t delay_s, timeout_s;
+    char ssid[33], password[64];
+} portal_wifi_config_t;
+
+typedef struct {
+    uint8_t mode, phase;
+    bool connected, ap;
+    int8_t rssi;
+    uint8_t clients;
+    uint32_t next_s;
+    char ssid[33], ip[16], ap_ip[16];
+} portal_wifi_status_t;
+void portal_wifi_status(portal_wifi_status_t *status);
+void portal_wifi_tick(void);
+
 esp_err_t portal_start(const char *ssid,
                        const char *password,
+                       const portal_wifi_config_t *wifi,
                        const portal_hooks_t *hooks,
                        bool *restart_required);
 esp_err_t portal_stop(void);

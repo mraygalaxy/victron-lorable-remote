@@ -10,6 +10,8 @@
 #include "esp_http_server.h"
 #include "esp_app_desc.h"
 #include "esp_netif.h"
+#include "esp_event.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -20,6 +22,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/sockets.h"
 #include "protocol.h"
 #include "uart_link.h"
 #include "portal_asset.h"
@@ -33,9 +36,16 @@
 #define HTTP_BODY_MAX LORABLE_HTTP_BODY_MAX
 static httpd_handle_t server;
 static esp_netif_t *access_point_netif;
+static esp_netif_t *station_netif;
+static esp_event_handler_instance_t wifi_events, ip_events;
+static atomic_bool station_connected, station_disconnected;
+static wifi_client_policy_t client_policy;
+static portal_wifi_config_t client_config;
+static portMUX_TYPE wifi_lock = portMUX_INITIALIZER_UNLOCKED;
 static portal_hooks_t portal_hooks;
 static char csrf_token[33];
-static bool wifi_initialized, wifi_started;
+static bool wifi_initialized;
+static atomic_bool wifi_started;
 static SemaphoreHandle_t response_signal;
 static portMUX_TYPE response_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t http_request_id = 0x8000, awaiting_id;
@@ -44,6 +54,125 @@ static size_t response_used;
 static unsigned response_status;
 static bool response_bad;
 static atomic_bool recovery_in_progress;
+static atomic_bool upload_entry_hold;
+static SemaphoreHandle_t radio_policy_lock;
+
+static void wifi_event(void *argument, esp_event_base_t base, int32_t id, void *data)
+{
+    (void)argument;(void)data;
+    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
+        atomic_store(&station_disconnected,false);
+        atomic_store(&station_connected,true);
+    } else if((base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) ||
+              (base==IP_EVENT && id==IP_EVENT_STA_LOST_IP)) {
+        atomic_store(&station_connected,false);
+        atomic_store(&station_disconnected,true);
+    }
+}
+
+void portal_wifi_status(portal_wifi_status_t *status)
+{
+    memset(status,0,sizeof(*status));
+    portENTER_CRITICAL(&wifi_lock);
+    status->mode=client_policy.mode;status->phase=client_policy.phase;
+    status->ap=client_policy.ap && wifi_started;
+    status->next_s=wifi_client_next_seconds(&client_policy,(uint32_t)(esp_timer_get_time()/1000));
+    memcpy(status->ssid,client_config.ssid,sizeof(status->ssid));
+    portEXIT_CRITICAL(&wifi_lock);
+    status->connected=wifi_started && atomic_load(&station_connected);
+    wifi_ap_record_t record={0};
+    if(status->connected && esp_wifi_sta_get_ap_info(&record)==ESP_OK)status->rssi=record.rssi;
+    if(status->connected && station_netif) {
+        esp_netif_ip_info_t info;
+        if(esp_netif_get_ip_info(station_netif,&info)==ESP_OK)
+            snprintf(status->ip,sizeof(status->ip),IPSTR,IP2STR(&info.ip));
+    }
+    if(status->ap && access_point_netif) {
+        esp_netif_ip_info_t info;
+        if(esp_netif_get_ip_info(access_point_netif,&info)==ESP_OK)
+            snprintf(status->ap_ip,sizeof(status->ap_ip),IPSTR,IP2STR(&info.ip));
+    }
+    wifi_sta_list_t clients={0};
+    if(status->ap && esp_wifi_ap_get_sta_list(&clients)==ESP_OK)status->clients=clients.num;
+}
+
+void portal_wifi_tick(void)
+{
+    if(!wifi_started || portal_ota_in_progress())return;
+    if(!radio_policy_lock || xSemaphoreTake(radio_policy_lock,0)!=pdTRUE)return;
+    if(portal_ota_in_progress()){xSemaphoreGive(radio_policy_lock);return;}
+    const bool connected=atomic_load(&station_connected);
+    const bool disconnected=atomic_exchange(&station_disconnected,false);
+    portENTER_CRITICAL(&wifi_lock);
+    const wifi_client_policy_t previous=client_policy;
+    unsigned actions=wifi_client_step(&client_policy,(uint32_t)(esp_timer_get_time()/1000),
+        connected,disconnected,0,false);
+    portEXIT_CRITICAL(&wifi_lock);
+    if(atomic_load(&upload_entry_hold)) {
+        portENTER_CRITICAL(&wifi_lock);client_policy=previous;portEXIT_CRITICAL(&wifi_lock);
+        if(disconnected)atomic_store(&station_disconnected,true);
+        xSemaphoreGive(radio_policy_lock);return;
+    }
+    if(actions&(WIFI_CLIENT_AP_ON|WIFI_CLIENT_AP_OFF)) {
+        const bool ap=(actions&WIFI_CLIENT_AP_ON)!=0;
+        if(esp_wifi_set_mode(ap?WIFI_MODE_APSTA:WIFI_MODE_STA)!=ESP_OK) {
+            portENTER_CRITICAL(&wifi_lock);client_policy.ap=!ap;portEXIT_CRITICAL(&wifi_lock);
+        }
+    }
+    if(actions&WIFI_CLIENT_DISCONNECT)esp_wifi_disconnect();
+    if((actions&WIFI_CLIENT_CONNECT) && esp_wifi_connect()!=ESP_OK)
+        atomic_store(&station_disconnected,true);
+    xSemaphoreGive(radio_policy_lock);
+}
+
+static void portal_wifi_prepare_upload(httpd_req_t *request)
+{
+    /* Fence a tick already in progress, then prevent new connection attempts.
+       Never disconnect an established router route used by this HTTP upload. */
+    atomic_store(&upload_entry_hold,true);
+    if(!radio_policy_lock)return;
+    xSemaphoreTake(radio_policy_lock,portMAX_DELAY);
+    struct sockaddr_in local={0};socklen_t length=sizeof(local);
+    esp_netif_ip_info_t ap;
+    bool from_ap=client_policy.ap && wifi_started && access_point_netif &&
+        getsockname(httpd_req_to_sockfd(request),(struct sockaddr*)&local,&length)==0 &&
+        local.sin_family==AF_INET && esp_netif_get_ip_info(access_point_netif,&ap)==ESP_OK &&
+        local.sin_addr.s_addr==ap.ip.addr;
+    bool keep_ap=from_ap && wifi_started && client_policy.mode==WIFI_CLIENT_ROUTER;
+    if(keep_ap && atomic_load(&station_connected) && station_netif) {
+        esp_netif_ip_info_t sta;
+        /* A DHCP address identical to the AP address makes the socket's local
+           IP ambiguous. Preserve the established station route in that case. */
+        if(esp_netif_get_ip_info(station_netif,&sta)!=ESP_OK || sta.ip.addr==ap.ip.addr)keep_ap=false;
+    }
+    if(keep_ap || wifi_client_cancel_for_upload(client_policy.mode,wifi_started,atomic_load(&station_connected))) {
+        esp_wifi_disconnect();
+        atomic_store(&station_connected,false);
+        atomic_store(&station_disconnected,true);
+    }
+    xSemaphoreGive(radio_policy_lock);
+}
+
+/* Credentials never enter status JSON. SSID can contain quotes/backslashes. */
+static void wifi_json(char *output, size_t size)
+{
+    portal_wifi_status_t status;portal_wifi_status(&status);
+    char ssid[65],rssi[8];size_t used=0;
+    for(const char *p=status.ssid;*p && used+2<sizeof(ssid);++p) {
+        if(*p=='"' || *p=='\\')ssid[used++]='\\';
+        ssid[used++]=*p;
+    }
+    ssid[used]=0;
+    if(status.connected && status.rssi<0)snprintf(rssi,sizeof(rssi),"%d",status.rssi);
+    else strcpy(rssi,"null");
+    static const char *const phases[]={"off","ap","delay","connecting","connected","fallback"};
+    snprintf(output,size,
+        "\"wifi_mode\":%u,\"wifi_phase\":\"%s\",\"wifi_sta_connected\":%s,"
+        "\"wifi_sta_rssi_dbm\":%s,\"wifi_sta_ip\":\"%s\",\"wifi_sta_ssid\":\"%s\","
+        "\"wifi_ap_active\":%s,\"wifi_ap_ip\":\"%s\",\"wifi_clients\":%u,\"wifi_next_s\":%lu",
+        status.mode,phases[status.phase],status.connected?"true":"false",rssi,status.ip,ssid,
+        status.ap?"true":"false",status.ap_ip,status.clients,(unsigned long)status.next_s);
+}
 
 void portal_receive_frame(const protocol_frame_t *frame)
 {
@@ -100,9 +229,8 @@ static esp_err_t session_get(httpd_req_t *r)
     wifi_sta_list_t clients = {0};
     const bool clients_known = esp_wifi_ap_get_sta_list(&clients) == ESP_OK;
     // AP allows two clients. Report their measured RSSI, not a theoretical PHY rate.
-    char rssi[24] = "", count[8] = "null";
+    char rssi[24] = "";
     if (clients_known) {
-        snprintf(count, sizeof(count), "%d", clients.num);
         size_t used = 0;
         for (int i = 0; i < clients.num && i < 2; ++i) {
             const int value = clients.sta[i].rssi;
@@ -110,13 +238,13 @@ static esp_err_t session_get(httpd_req_t *r)
                 used += snprintf(rssi + used, sizeof(rssi) - used, "%s%d", used ? "," : "", value);
         }
     }
-    char body[512];
+    char body[1024],wifi[512];wifi_json(wifi,sizeof(wifi));
     snprintf(body, sizeof(body),
-      "{\"token\":\"%s\",\"native\":true,\"esp_firmware\":\"%s\",\"ble_advertisements\":%lu,\"ble_scan_status\":%d,\"wifi_seconds\":%lu,\"ota_target\":\"rak11162\",\"update_format\":1,\"wifi_clients\":%s,\"wifi_rssi_dbm\":[%s],\"ble_target_state\":%u,\"ble_target_mac\":\"%s\",\"ble_target_age_s\":%lu}",
+      "{\"token\":\"%s\",\"native\":true,\"esp_firmware\":\"%s\",\"ble_advertisements\":%lu,\"ble_scan_status\":%d,\"wifi_seconds\":%lu,\"ota_target\":\"rak11162\",\"update_format\":1,\"wifi_rssi_dbm\":[%s],\"ble_target_state\":%u,\"ble_target_mac\":\"%s\",\"ble_target_age_s\":%lu,%s}",
       csrf_token, esp_app_get_description()->version,
       (unsigned long)status.last_ble_advertisements, status.last_ble_status,
-      (unsigned long)status.seconds_left, count, rssi,
-      status.target_state, status.target_mac, (unsigned long)status.target_age_seconds);
+      (unsigned long)status.seconds_left, rssi,
+      status.target_state, status.target_mac, (unsigned long)status.target_age_seconds,wifi);
     httpd_resp_set_type(r, "application/json");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
     return httpd_resp_sendstr(r, body);
@@ -165,6 +293,15 @@ static esp_err_t proxy_request(httpd_req_t *r)
     const bool valid = received && !response_bad;
     portEXIT_CRITICAL(&response_lock);
     if (!valid) return json_error(r,"504 Gateway Timeout","stm32_no_response");
+    if(!post && !strcmp(r->uri,"/status") && response_status==200 && response_used &&
+       response[response_used-1]=='}') {
+        char wifi[512];wifi_json(wifi,sizeof(wifi));
+        size_t added=strlen(wifi);
+        if(response_used+added+2>=sizeof(response))return json_error(r,"500 Internal Server Error","status_too_large");
+        response[--response_used]=',';
+        memcpy(response+response_used+1,wifi,added);
+        response_used+=added+1;response[response_used++]='}';response[response_used]=0;
+    }
     httpd_resp_set_type(r,"application/json");
     httpd_resp_set_hdr(r,"Cache-Control","no-store");
     if(response_status != 200) httpd_resp_set_status(r,"400 Bad Request");
@@ -173,8 +310,11 @@ static esp_err_t proxy_request(httpd_req_t *r)
 static esp_err_t ota_post(httpd_req_t *r)
 {
     if(!protected_request(r)) return json_error(r,"403 Forbidden","reload_page");
-    if(atomic_load(&recovery_in_progress)) return json_error(r,"409 Conflict","update_busy");
-    return bundle_upload(r);
+    if(atomic_load(&recovery_in_progress)||bundle_busy()) return json_error(r,"409 Conflict","update_busy");
+    portal_wifi_prepare_upload(r);
+    const esp_err_t result=bundle_upload(r);
+    atomic_store(&upload_entry_hold,false);
+    return result;
 }
 static void restart_after_reply(void *argument)
 {
@@ -196,6 +336,7 @@ static esp_err_t recovery_post(httpd_req_t *r)
         return json_error(r,"400 Bad Request","wrong_firmware_size");
     // Radio manager refuses BLE/stop during upload; header is committed LAST.
     atomic_store(&recovery_in_progress,true);
+    portal_wifi_prepare_upload(r);
     uart_link_send("OTA_STATE",0,"1");
     uint8_t header[88],buffer[1024],digest[16];
     size_t used=0;
@@ -245,6 +386,7 @@ static esp_err_t recovery_post(httpd_req_t *r)
     return ESP_OK;
 failed:
     atomic_store(&recovery_in_progress,false);
+    atomic_store(&upload_entry_hold,false);
     uart_link_send("OTA_STATE",0,"0");
     return json_error(r,"400 Bad Request",failure);
 }
@@ -294,6 +436,7 @@ static esp_err_t fail_start(esp_err_t start_status, bool *restart_required)
 
 esp_err_t portal_start(const char *ssid,
                        const char *password,
+                       const portal_wifi_config_t *wifi,
                        const portal_hooks_t *hooks,
                        bool *restart_required)
 {
@@ -301,11 +444,11 @@ esp_err_t portal_start(const char *ssid,
         return ESP_ERR_INVALID_ARG;
     }
     *restart_required = false;
-    if (server != NULL || wifi_initialized || wifi_started || access_point_netif != NULL) {
+    if (server != NULL || wifi_initialized || wifi_started || access_point_netif != NULL || station_netif != NULL) {
         *restart_required = true;
         return ESP_ERR_INVALID_STATE;
     }
-    if (ssid == NULL || password == NULL || hooks == NULL) {
+    if (ssid == NULL || password == NULL || hooks == NULL || wifi == NULL || wifi->mode>2) {
         return ESP_ERR_INVALID_ARG;
     }
     const size_t ssid_length = strlen(ssid);
@@ -321,6 +464,13 @@ esp_err_t portal_start(const char *ssid,
     }
 
     portal_hooks = *hooks;
+    if(!radio_policy_lock)radio_policy_lock=xSemaphoreCreateMutex();
+    if(!radio_policy_lock)return ESP_ERR_NO_MEM;
+    portENTER_CRITICAL(&wifi_lock);
+    client_config=*wifi;
+    wifi_client_begin(&client_policy,wifi->mode,(uint32_t)(esp_timer_get_time()/1000),wifi->delay_s,wifi->timeout_s);
+    portEXIT_CRITICAL(&wifi_lock);
+    atomic_store(&station_connected,false);atomic_store(&station_disconnected,false);
     uint8_t nonce[16];
     esp_fill_random(nonce, sizeof(nonce));
     for (size_t index = 0; index < sizeof(nonce); ++index) {
@@ -328,11 +478,21 @@ esp_err_t portal_start(const char *ssid,
     }
     protocol_secure_zero(nonce, sizeof(nonce));
 
+    /* Explicit off still supports the USB updater's loopback HTTP transport. */
+    if(wifi->mode==WIFI_CLIENT_OFF) {
+        const esp_err_t result=start_http_server();
+        return result==ESP_OK ? ESP_OK : fail_start(result,restart_required);
+    }
+
     access_point_netif = esp_netif_create_default_wifi_ap();
     if (access_point_netif == NULL) {
         memset(&portal_hooks, 0, sizeof(portal_hooks));
         protocol_secure_zero(csrf_token, sizeof(csrf_token));
         return ESP_ERR_NO_MEM;
+    }
+    if(wifi->mode==WIFI_CLIENT_ROUTER) {
+        station_netif=esp_netif_create_default_wifi_sta();
+        if(!station_netif)return fail_start(ESP_ERR_NO_MEM,restart_required);
     }
 
     esp_err_t result;
@@ -377,9 +537,32 @@ esp_err_t portal_start(const char *ssid,
     /* Optional PMF keeps modern protection without excluding older phones. */
     wifi_configuration.ap.pmf_cfg.required = false;
 
-    result = esp_wifi_set_mode(WIFI_MODE_AP);
+    if(wifi->mode==WIFI_CLIENT_ROUTER) {
+        result=esp_event_handler_instance_register(WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,wifi_event,NULL,&wifi_events);
+        if(result==ESP_OK)result=esp_event_handler_instance_register(IP_EVENT,ESP_EVENT_ANY_ID,wifi_event,NULL,&ip_events);
+        if(result!=ESP_OK)return fail_start(result,restart_required);
+    }
+    result = esp_wifi_set_mode(wifi->mode==WIFI_CLIENT_ROUTER?WIFI_MODE_APSTA:WIFI_MODE_AP);
     if (result == ESP_OK) {
         result = esp_wifi_set_config(WIFI_IF_AP, &wifi_configuration);
+    }
+    if (result == ESP_OK) {
+        if(wifi->mode==WIFI_CLIENT_ROUTER) {
+            wifi_config_t station={0};
+            memcpy(station.sta.ssid,wifi->ssid,strlen(wifi->ssid));
+            memcpy(station.sta.password,wifi->password,strlen(wifi->password));
+            station.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
+            station.sta.pmf_cfg.capable=true;
+            station.sta.pmf_cfg.required=false;
+            station.sta.scan_method=WIFI_ALL_CHANNEL_SCAN;
+            result=esp_wifi_set_config(WIFI_IF_STA,&station);
+            protocol_secure_zero(&station,sizeof(station));
+        }
+    }
+    if (result == ESP_OK) {
+        /* Router mode starts STA-only: no AP during its delay or DHCP window.
+           AP credentials stay ready in RAM for a later bounded fallback. */
+        if(wifi->mode==WIFI_CLIENT_ROUTER)result=esp_wifi_set_mode(WIFI_MODE_STA);
     }
     if (result == ESP_OK) {
         result = esp_wifi_start();
@@ -414,6 +597,12 @@ esp_err_t portal_stop(void)
         }
         wifi_started = false;
     }
+    if(wifi_events) {
+        esp_event_handler_instance_unregister(WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,wifi_events);wifi_events=NULL;
+    }
+    if(ip_events) {
+        esp_event_handler_instance_unregister(IP_EVENT,ESP_EVENT_ANY_ID,ip_events);ip_events=NULL;
+    }
     if (wifi_initialized) {
         const esp_err_t result = esp_wifi_deinit();
         if (result != ESP_OK) {
@@ -425,6 +614,14 @@ esp_err_t portal_stop(void)
         esp_netif_destroy_default_wifi(access_point_netif);
         access_point_netif = NULL;
     }
+    if(station_netif) {
+        esp_netif_destroy_default_wifi(station_netif);station_netif=NULL;
+    }
+    atomic_store(&station_connected,false);atomic_store(&station_disconnected,false);
+    portENTER_CRITICAL(&wifi_lock);
+    protocol_secure_zero(&client_config,sizeof(client_config));
+    wifi_client_begin(&client_policy,WIFI_CLIENT_OFF,0,0,0);
+    portEXIT_CRITICAL(&wifi_lock);
     memset(&portal_hooks, 0, sizeof(portal_hooks));
     protocol_secure_zero(csrf_token, sizeof(csrf_token));
     return ESP_OK;
@@ -432,10 +629,10 @@ esp_err_t portal_stop(void)
 
 bool portal_running(void)
 {
-    return server != NULL && wifi_initialized && wifi_started;
+    return server != NULL;
 }
 
 bool portal_ota_in_progress(void)
 {
-    return bundle_busy()||usb_tunnel_busy()||atomic_load(&recovery_in_progress);
+    return bundle_busy()||usb_tunnel_busy()||atomic_load(&recovery_in_progress)||atomic_load(&upload_entry_hold);
 }

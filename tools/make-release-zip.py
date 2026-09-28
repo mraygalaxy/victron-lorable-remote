@@ -4,6 +4,9 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import zipfile
+import sys
+
+sys.dont_write_bytecode = True
 
 def release_zip(root, output):
     root = root.resolve()

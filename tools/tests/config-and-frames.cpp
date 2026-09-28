@@ -60,4 +60,39 @@ static void tenFunctionTests(){
  assert(runtimeConfigCommitLorawanUpdate(c));
  puts("PASS: ten full GATT functions, exact roundtrip, stable function IDs, bounds, profile isolation, TTN zero JoinEUI");
 }
-int main(){frameTests();migrationTests();tenFunctionTests();}
+static void settings4120Tests(){
+ RuntimeConfig c,d;runtimeConfigDefaults(c);assert(c.loraTxDbm==14&&c.wifiMode==0);
+ assert(c.victronDeviceInstance==3&&c.wifiStaDelaySeconds==90&&c.wifiStaTimeoutSeconds==60);
+ c.loraTxDbm=0;c.wifiMode=1;strcpy(c.wifiStaSsid,"Boat router");strcpy(c.wifiStaPassword,"a password with spaces");
+ c.wifiStaDelaySeconds=0;c.wifiStaTimeoutSeconds=300;
+ c.edgeHoldSeconds[0]=5;c.edgeDelaySeconds[0]=10;c.edgeHoldSeconds[1]=3600;c.edgeDelaySeconds[1]=3600;
+ uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE],again[RUNTIME_CONFIG_WIRE_SIZE];
+ runtimeConfigEncode(c,wire);assert(runtimeConfigDecode(wire,sizeof(wire),d));
+ runtimeConfigEncode(d,again);assert(!memcmp(wire,again,sizeof(wire)));
+ assert(runtimeConfigSave(c)&&runtimeConfigLoad(d));assert(d.loraTxDbm==0&&d.wifiMode==1&&d.edgeHoldSeconds[0]==5);
+ assert(!strcmp(d.wifiStaPassword,c.wifiStaPassword)&&d.victronDeviceInstance==3);
+ unsigned writes=api.system.flash.writes;assert(runtimeConfigSave(d)&&api.system.flash.writes==writes);
+ c.loraTxDbm=22;assert(runtimeConfigValid(c));c.loraTxDbm=23;assert(!runtimeConfigValid(c));c=d;
+ c.edgeDelaySeconds[0]=3601;assert(!runtimeConfigValid(c));c=d;
+ c.wifiStaPassword[0]=0;assert(!runtimeConfigValid(c));c.wifiMode=0;assert(runtimeConfigValid(c));c=d;
+ memset(c.wifiStaSsid,'x',sizeof(c.wifiStaSsid));assert(!runtimeConfigValid(c));c=d;
+ c.wifiStaTimeoutSeconds=0;assert(!runtimeConfigValid(c));c=d;
+ runtimeConfigDefaults(c);runtimeConfigEncode(c,wire);
+ const uint16_t sizes[]={100,100,133,147,155,496,961,1212};
+ const uint16_t payloads[]={100,136,168,184,188,532,997,1248};
+ for(unsigned ver=1;ver<=8;++ver){
+  if(ver==6)continue; // Historical text-GATT v6 fixture is covered above.
+  api.system.flash=FakeFlash();const size_t n=sizeof(StoredHeader)+payloads[ver-1]+4;
+  std::vector<uint8_t> record(n,0);StoredHeader h={CONFIG_MAGIC,(uint16_t)ver,payloads[ver-1],41};
+  memcpy(record.data(),&h,sizeof(h));memcpy(record.data()+sizeof(h),wire,sizes[ver-1]);
+  if(ver>1){auto p=record.data()+sizeof(h)+sizes[ver-1];p[0]=1;p[1]=1;p[17]=2;}
+  putU32Le(record.data()+n-4,crc32(record.data(),n-4));
+  assert(api.system.flash.set(CONFIG_SLOT_A_OFFSET,record.data(),record.size()));
+  assert(runtimeConfigLoad(d)&&runtimeConfigRevision()==41);
+  assert(d.loraTxDbm==14&&d.wifiMode==0&&d.edgeHoldSeconds[0]==0&&d.wifiStaDelaySeconds==90);
+  PendingLorawanCredentials pending;assert(runtimeConfigPendingLorawanUpdate(pending)==(ver>1));
+  assert(runtimeConfigSave(d)&&runtimeConfigLoad(d)&&runtimeConfigRevision()==42);
+ }
+ puts("PASS: 4.12 settings roundtrip/bounds, exact zero power, stable SmartSolar index, WiFi secret, v1-v8 migration and pending keys");
+}
+int main(){frameTests();migrationTests();tenFunctionTests();settings4120Tests();}

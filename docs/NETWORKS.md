@@ -71,7 +71,15 @@ Gebruik verschillende JoinEUIs en onafhankelijke AppKeys voor ingeschakelde prof
 
 Bereikbaarheidscontrole gebruikt standaard iedere **240 minuten** één confirmed statusuplink. Alleen een ACK of ontvangen downlink bevestigt bereikbaarheid; een geslaagde uitzending alleen niet. Na twee gemiste controles volgt opnieuw aanmelden/fallback, rekening houdend met de lopende preempt-timer. Interval 0 schakelt deze controle uit; een stil weggevallen verbinding wordt dan niet ontdekt.
 
-TTN-profielen begrenzen periodieke status en controles op minimaal vier uur, en joins op maximaal zes per profiel per 24-uursbudget. Deze budgettellers staan in RAM; herstarten is geen manier om fair use te omzeilen. Radio-duty-cyclebeperkingen kunnen extra wachttijd veroorzaken.
+Bij automatische werking begrenzen TTN-profielen periodieke status en controles op minimaal vier uur, en joins op maximaal zes per profiel per 24-uursbudget. Deze budgettellers staan in RAM; herstarten is geen manier om fair use te omzeilen. Radio-duty-cyclebeperkingen kunnen automatische berichten verder vertragen. De handmatige knoppen hieronder zijn een uitzondering, geen volledige bewaking van toegestaan radioverkeer.
+
+### Zendsterkte en bereik controleren
+
+Onder **LoRaWAN** stel je een zendvermogensplafond van **0–22 dBm** in; standaard **14 dBm**. **0 dBm = 1 mW**, niet uit. ADR, de netwerkserver en de radioregio kunnen het werkelijke vermogen verlagen. Het is radio-uitgangsvermogen, geen automatisch gecorrigeerd uitgestraald vermogen: houd zelf rekening met antennewinst, kabelverlies, land en frequentieband. De bovengrens van de slider is geen toestemming om overal 22 dBm te gebruiken.
+
+De statuspagina onderscheidt **wachtrij → geaccepteerd door de radio → lokaal uitgezonden → ACK ontvangen**. Alleen een ACK of ontvangen downlink bevestigt dat er retourverkeer is; lokaal verzonden bewijst niet dat de gateway het ontving. RSSI/SNR op het board horen bij het laatst ontvangen pakket, met ouderdom en netwerkcontext, niet bij een continue bereikmeting. Voor de uplink-RSSI/SNR kijk je bij je gateway of netwerkserver. Zonder ontvangst kan het board geen nieuwe signaalwaarde tonen.
+
+Gebruik **Nu aanmelden** voor het hoogste geldige, ingeschakelde voorkeursprofiel en **Nu verzenden** voor één confirmed statusbericht. Deze handmatige opdrachten slaan preempt, gewone intervallen en de betreffende budget-/radio-wachttijden over; een bezette radio blijft een bezette radio. Gebruik ze spaarzaam en bewaak zelf de airtime en netwerkregels. Geen ACK kan ook door een ontbrekende downlink of een verkeerde RX2-instelling komen, niet alleen door afstand. Een joinvraag zonder succesvolle aanmelding heeft geen bruikbare applicatieverbinding.
 
 ### Eén gateway voor lokaal verkeer én TTN
 
@@ -109,7 +117,15 @@ After a failed preferred join, a backup stays selected until its preemption time
 
 Health checks default to one confirmed status uplink every **240 minutes**. An ACK or received downlink, not transmission completion alone, confirms reachability. Two missed checks cause rejoin/fallback while respecting the backup timer. Interval 0 disables silent-loss detection.
 
-Private retries are every five minutes. TTN retries are at least one hour apart, with six joins per profile per 24-hour RAM budget. TTN periodic status and health intervals are at least four hours. Events, joins and other messages still consume airtime. Sandbox fair use permits **30 seconds uplink airtime and 10 downlinks per node per day**, including ACKs; see [TTN's policy](https://www.thethingsnetwork.org/docs/lorawan/duty-cycle/).
+Automatic private retries are every five minutes. Automatic TTN retries are at least one hour apart, with six joins per profile per 24-hour RAM budget. TTN periodic status and health intervals are at least four hours. Events, joins and other messages still consume airtime. Sandbox fair use permits **30 seconds uplink airtime and 10 downlinks per node per day**, including ACKs; see [TTN's policy](https://www.thethingsnetwork.org/docs/lorawan/duty-cycle/). Manual commands below are exceptions to the automatic waiting policy, not comprehensive airtime enforcement.
+
+### Transmit power and range checks
+
+Set a **0–22 dBm** transmit-power ceiling under **LoRaWAN**; default **14 dBm**. **0 dBm is 1 mW**, not off. ADR, network commands and regional behavior may reduce actual output. This is radio output power: account for antenna gain, cable loss and local band limits yourself. The slider maximum is not permission to use 22 dBm everywhere.
+
+Status distinguishes **queued → accepted by the radio → transmitted locally → ACK received**. Local transmission does not prove reception at a gateway. Board RSSI/SNR belongs to its latest received packet, with age/network context; it is not a continuous range meter. Find uplink RSSI/SNR at the gateway/server. Without received packets, there is no new signal measurement.
+
+**Join now** requests the highest valid enabled priority profile; **Send now** requests one confirmed status uplink. These manual commands bypass preemption, normal intervals and the associated budget/radio timing waits. They cannot transmit through a physically busy radio. Use them sparingly and observe airtime/network rules yourself. Missing ACK can also indicate a downlink or RX2 problem, not just distance. A join request without successful activation is not an application connection.
 
 ### Gateway forwarding and safe switching
 
