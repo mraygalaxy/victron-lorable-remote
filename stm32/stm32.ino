@@ -45,6 +45,13 @@
 
 static const uint16_t VIC_LOAD_CONTROL_VREG = 0xEDAB;
 static const uint8_t VIC_LOAD_ALWAYS_ON = 0x04;
+// Smart BatteryProtect 48V-100A (product A3B3, firmware v2.11 confirmed) uses a
+// DIFFERENT VREG than the 12/24V-100A (A3B1) profile above. Found by capturing
+// real VictronConnect app traffic (Android Bluetooth HCI snoop log) against a
+// physical A3B3 unit and verifying both directions with a multimeter on the
+// unit's actual output - not inferred from documentation. See deviceProfile==4
+// and getLoadControlVreg() further down, once runtimeConfig exists.
+static const uint16_t VIC_SBP_48V_SWITCH_VREG = 0x0200;
 #if LEGACY_BLE_AT
 static const uint8_t BLE_CONN_INDEX = 0;
 static const size_t ESP_RX_CAPACITY = 2048;
@@ -103,6 +110,14 @@ static uint8_t lastBleResult = BLE_NOT_RUN;
 static uint8_t lastBleAttempts = 0;
 static uint8_t lastLoadValue = 0xFF;
 static RuntimeConfig runtimeConfig;
+// getLoadControlVreg() picks the right load-switch register for the active
+// profile. Every profile except 4 (48V-100A BatteryProtect) keeps using
+// VIC_LOAD_CONTROL_VREG unchanged - only profile 4 differs (see its
+// definition above for how that was found and verified).
+static inline uint16_t getLoadControlVreg()
+{
+    return runtimeConfig.deviceProfile == 4 ? VIC_SBP_48V_SWITCH_VREG : VIC_LOAD_CONTROL_VREG;
+}
 static uint32_t configWindowDeadline = 0;
 static bool lastWifiWanted = false;
 static uint32_t pendingRebootAt = 0;
@@ -632,10 +647,11 @@ static bool discoverVictronGatt(uint8_t &serviceIndex,
 static bool findLoadReport(uint8_t &value)
 {
     const uint8_t instance = runtimeConfig.victronDeviceInstance;
+    const uint16_t vreg = getLoadControlVreg();
     const uint8_t prefix[] = {
         0x08, instance, 0x19,
-        (uint8_t)(VIC_LOAD_CONTROL_VREG >> 8),
-        (uint8_t)(VIC_LOAD_CONTROL_VREG & 0xFF),
+        (uint8_t)(vreg >> 8),
+        (uint8_t)(vreg & 0xFF),
         0x41
     };
 
@@ -656,10 +672,11 @@ static bool findLoadReport(uint8_t &value)
 
 static bool requestLoadValue(uint8_t serviceIndex, uint8_t lastDataChar, uint8_t &value)
 {
+    const uint16_t vreg = getLoadControlVreg();
     const uint8_t getFrame[] = {
         0x05, runtimeConfig.victronDeviceInstance, 0x81, 0x19,
-        (uint8_t)(VIC_LOAD_CONTROL_VREG >> 8),
-        (uint8_t)(VIC_LOAD_CONTROL_VREG & 0xFF)
+        (uint8_t)(vreg >> 8),
+        (uint8_t)(vreg & 0xFF)
     };
     if (!writeGatt(serviceIndex, lastDataChar, -1, getFrame, sizeof(getFrame)))
     {
@@ -671,7 +688,17 @@ static bool requestLoadValue(uint8_t serviceIndex, uint8_t lastDataChar, uint8_t
 
 static uint8_t runVictronTransaction(uint8_t desiredValue)
 {
-    if (desiredValue != 0 && desiredValue != 4) return BLE_BAD_SETTINGS;
+    // Profile 4 (48V-100A) uses smartBatteryProtectMode's 3/4 encoding on its
+    // own VREG (see getLoadControlVreg()) - 0 is not a valid value there.
+    // Every other profile keeps the original 0/4 check unchanged.
+    if (runtimeConfig.deviceProfile == 4)
+    {
+        if (desiredValue != 3 && desiredValue != 4) return BLE_BAD_SETTINGS;
+    }
+    else if (desiredValue != 0 && desiredValue != 4)
+    {
+        return BLE_BAD_SETTINGS;
+    }
     if (String(runtimeConfig.victronMac) == "00:00:00:00:00:00" ||
         strlen(runtimeConfig.victronMac) != 17 ||
         runtimeConfig.victronDeviceInstance > 23)
@@ -806,12 +833,14 @@ static uint8_t runVictronTransaction(uint8_t desiredValue)
 
     if (currentValue != desiredValue)
     {
-        // CBOR: setValues(instance, [VREG 0xEDAB, byte-string 0x04]).
-        // This is the only settings write present in the firmware.
+        // CBOR: setValues(instance, [VREG, byte-string desiredValue]).
+        // This is the only settings write present in the firmware. VREG
+        // depends on the active profile - see getLoadControlVreg().
+        const uint16_t vreg = getLoadControlVreg();
         const uint8_t setFrame[] = {
             0x06, runtimeConfig.victronDeviceInstance, 0x82, 0x19,
-            (uint8_t)(VIC_LOAD_CONTROL_VREG >> 8),
-            (uint8_t)(VIC_LOAD_CONTROL_VREG & 0xFF),
+            (uint8_t)(vreg >> 8),
+            (uint8_t)(vreg & 0xFF),
             0x41, desiredValue
         };
         if (!writeGatt(serviceIndex, lastDataChar, -1, setFrame, sizeof(setFrame)))
@@ -1528,7 +1557,7 @@ static void sendStatusUplink()
     payload[15] = lastEvent;
     payload[16] = lastActions;
     const uint8_t requestedKind = runtimeConfig.bleFunctions[pendingLoadValue%MAX_BLE_FUNCTIONS].kind;
-    payload[17] = runtimeConfig.deviceProfile==3?smartBatteryProtectMode(requestedKind):smartMpptMode(requestedKind);
+    payload[17] = isBatteryProtectProfile(runtimeConfig.deviceProfile)?smartBatteryProtectMode(requestedKind):smartMpptMode(requestedKind);
     payload[18] = runtimeConfig.deviceProfile;
     payload[19] = (lastActions & (ACTION_LOAD_ON|ACTION_LOAD_OFF))?pendingLoadValue+1:0;
 

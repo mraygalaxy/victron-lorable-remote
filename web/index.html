@@ -125,9 +125,9 @@ for(const field of F.filter(f=>['rise_ble','fall_ble'].includes(f[0])))field[4]=
 const $=id=>document.getElementById(id);
 // Stable stored profile IDs, independently ordered for a clear device picker.
 const profileField=F.find(f=>f[0]==='profile');
-profileField[4]=[[1,'Victron Smart MPPT'],[3,'Victron Smart BatteryProtect'],[2,'Generic Bluetooth · GATT']];
-profileField[5]='Kies je apparaat. Smart MPPT: kies per functie de gewenste regeling voor de LOAD-uitgang. Smart BatteryProtect: AAN/UIT voor de 12/24V-100A-variant (product A3B1); andere productcodes worden geweigerd. Generic: vul per functie de GATT-service, het kenmerk en de te schrijven gegevens in.';
-profileField[6]='Choose your device. Smart MPPT: select a LOAD output control mode for each function. Smart BatteryProtect: ON/OFF for the 12/24V-100A variant (product A3B1); other product codes are refused. Generic: enter the GATT service, characteristic and data to write for each function.';
+profileField[4]=[[1,'Victron Smart MPPT'],[3,'Victron Smart BatteryProtect (12/24V-100A, A3B1)'],[4,'Victron Smart BatteryProtect (48V-100A, A3B3)'],[2,'Generic Bluetooth · GATT']];
+profileField[5]='Kies je apparaat. Smart MPPT: kies per functie de gewenste regeling voor de LOAD-uitgang. Smart BatteryProtect (A3B1, 12/24V-100A): AAN/UIT zoals oorspronkelijk ondersteund. Smart BatteryProtect (A3B3, 48V-100A): AAN/UIT op een ANDER VREG-register; onafhankelijk bevestigd op firmware v2.11 door live VictronConnect-verkeer op te nemen (Bluetooth HCI snoop log) en beide richtingen met een multimeter te verifiëren. Generic: vul per functie de GATT-service, het kenmerk en de te schrijven gegevens in.';
+profileField[6]='Choose your device. Smart MPPT: select a LOAD output control mode for each function. Smart BatteryProtect (A3B1, 12/24V-100A): ON/OFF as originally supported. Smart BatteryProtect (A3B3, 48V-100A): ON/OFF on a DIFFERENT VREG register; independently confirmed on firmware v2.11 by capturing live VictronConnect traffic (Bluetooth HCI snoop log) and verifying both directions with a multimeter. Generic: enter the GATT service, characteristic and data to write for each function.';
 for(const f of F.filter(f=>/^fn\d+_kind$/.test(f[0]))) {
  f[4].push([11,'BatteryProtect · AAN','BatteryProtect · ON'],[12,'BatteryProtect · UIT','BatteryProtect · OFF']);
  f[5]+=' BatteryProtect: leest eerst de apparaatidentiteit en modus; schrijft alleen bij wijziging. Succes vereist teruggelezen modus én uitgangsstatus. BMS- en onderspanningsbeveiliging blijven ongewijzigd.';

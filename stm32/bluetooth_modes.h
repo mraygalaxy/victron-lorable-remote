@@ -3,6 +3,14 @@
 static inline unsigned char smartBatteryProtectMode(unsigned char kind) {
     return kind==11?3:kind==12?4:255;
 }
+// Profile 3 (12/24V-100A, product A3B1) and profile 4 (48V-100A, product A3B3)
+// share the same ON/OFF kind mapping and UI - they only differ in which VREG
+// the switch command is written to (see VIC_SBP_LEGACY_SWITCH_VREG and
+// VIC_SBP_48V_SWITCH_VREG in the .ino). Treat them identically everywhere
+// except the one write/read site that picks the VREG.
+static inline bool isBatteryProtectProfile(unsigned char profile) {
+    return profile == 3 || profile == 4;
+}
 #include <stdint.h>
 
 // Persistent function kinds keep v4.7 values stable (1 ON, 2 OFF, 3/4 GATT).

@@ -22,7 +22,7 @@ Eerste installatie gebruikt een Windows-pc met USB én WiFi; de wizard regelt de
 | Apparaat | Functies |
 |---|---|
 | **Victron Smart MPPT** | Acht regelmodi voor de LOAD-uitgang |
-| **Victron Smart BatteryProtect** | AAN/UIT; 12/24V-100A, product A3B1 |
+| **Victron Smart BatteryProtect** | AAN/UIT; 12/24V-100A (product A3B1), of 48V-100A (product A3B3, bevestigd op firmware v2.11) |
 | **Generic Bluetooth** | Eigen GATT-service, characteristic en opdrachtbytes |
 | **Relais / droog contact** | Aan, uit of een puls met instelbare duur |
 
@@ -84,7 +84,7 @@ Functie 10 is **`0A`**, niet `10`. Voor bediening zonder wachten op een uplink g
 - **Opslaan is expliciet:** ook een nieuwe netwerkvolgorde wordt pas toegepast met Opslaan. Logs en uptime blijven in RAM.
 - **Back-ups bevatten geen geheime gegevens:** bewaar AppKeys, Bluetooth-PIN en de wachtwoorden van accesspoint én router apart. De nieuwe instellingen gaan mee in back-ups; oudere back-ups krijgen daarvoor standaardwaarden.
 - **Energie:** de winst zit in apparatuur die uit kan blijven. Class C luistert vrijwel continu en is geen microampère-slaapstand. De interface toont een dagraming in mAh of Wh.
-- **Bluetooth:** WiFi pauzeert tijdens een opdracht. MPPT User defined/AES gebruikt bestaande VictronConnect-drempels; het BatteryProtect-profiel accepteert product A3B1 en laat beveiligingsdrempels en BMS-modus ongemoeid.
+- **Bluetooth:** WiFi pauzeert tijdens een opdracht. MPPT User defined/AES gebruikt bestaande VictronConnect-drempels; het BatteryProtect-profiel accepteert product A3B1 (12/24V-100A) of A3B3 (48V-100A) en laat beveiligingsdrempels en BMS-modus ongemoeid. Beide producten gebruiken een ander intern schakelregister - de firmware kiest automatisch het juiste register op basis van het gekozen profiel, je hoeft het register zelf niet te kennen. De ondersteuning voor de A3B3 is onafhankelijk gevonden en geverifieerd (niet uit Victron-documentatie): door echt VictronConnect-verkeer op te nemen via Androids Bluetooth HCI snoop log tijdens het schakelen van een fysieke unit, en vervolgens zowel AAN als UIT te bevestigen met een multimeter op de fysieke uitgang - op een Smart BatteryProtect 48V-100A met firmware v2.11. Werkt dit profiel niet op jouw firmwareversie, meld dat dan via een issue met je firmwareversie zodat het register gecontroleerd kan worden.
 
 Voed het board onafhankelijk van de geschakelde belasting en houd de gateway bereikbaar als je modem uitstaat. Gebruik passende zekeringen en een lokale uitschakelmogelijkheid; dit is geen veiligheidscontroller. Houd de voeding aangesloten tijdens updates.
 

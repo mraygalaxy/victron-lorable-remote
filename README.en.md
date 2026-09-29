@@ -22,7 +22,7 @@ First installation uses a Windows PC with USB and WiFi; the wizard handles the t
 | Device | Functions |
 |---|---|
 | **Victron Smart MPPT** | Eight LOAD output operating modes |
-| **Victron Smart BatteryProtect** | ON/OFF; 12/24V-100A, product A3B1 |
+| **Victron Smart BatteryProtect** | ON/OFF; 12/24V-100A (product A3B1), or 48V-100A (product A3B3, firmware v2.11 confirmed) |
 | **Generic Bluetooth** | Custom GATT service, characteristic and command bytes |
 | **Relay / dry contact** | On, off or a timed pulse |
 
@@ -84,7 +84,7 @@ Function 10 is **`0A`**, not `10`. Use **Class C** on both device and network se
 - **Saving is explicit:** network reordering also requires Save. Events and uptime stay in RAM.
 - **Backups exclude secrets:** retain AppKeys, Bluetooth PIN and both access-point and router passwords separately. Backups include the new settings; older backups receive defaults for these fields.
 - **Energy:** savings come from equipment you can leave off. Class C listens almost continuously; it is not a microamp sleep mode. The interface estimates daily use in mAh or Wh.
-- **Bluetooth:** WiFi pauses during commands. MPPT User defined/AES uses existing VictronConnect thresholds; the BatteryProtect profile accepts product A3B1 and leaves protection thresholds and BMS mode unchanged.
+- **Bluetooth:** WiFi pauses during commands. MPPT User defined/AES uses existing VictronConnect thresholds; the BatteryProtect profile accepts product A3B1 (12/24V-100A) or A3B3 (48V-100A) and leaves protection thresholds and BMS mode unchanged. The two products use different internal switch registers - the firmware picks the right one automatically from the profile you select, you don't need to know the register yourself. The A3B3 support was found and verified independently (not from Victron documentation): by capturing real VictronConnect app traffic via Android's Bluetooth HCI snoop log while toggling a real unit's output, then confirming both ON and OFF with a multimeter on the physical output - on a Smart BatteryProtect 48V-100A running firmware v2.11. If your unit is on different firmware and this profile doesn't work, please open an issue with your firmware version so the register can be checked against it.
 
 Power the board independently of its switched load and keep the gateway reachable while your modem is off. Use appropriate fuses and a local disconnect; this is not a safety controller. Maintain power throughout updates.
 
